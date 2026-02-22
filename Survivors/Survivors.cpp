@@ -1,9 +1,19 @@
 #include <windows.h>
-#include <d3d12.h>      // DX12 코어 기능
-#include <dxgi1_4.h>    // 디스플레이 장치 및 스왑 체인 관리
-#include <wrl.h>        // Comptr (스마트 포인터) 사용을 위함
+#include <d3d12.h>          // DX12 코어 기능
+#include <dxgi1_4.h>        // 디스플레이 장치 및 스왑 체인 관리
+#include <d3dcompiler.h>    // 셰이더 컴파일용 헤더
+#include <wrl.h>            // Comptr (스마트 포인터) 사용을 위함
+#include "d3dx12.h"         // 헬퍼 헤더
 
 using namespace Microsoft::WRL;
+
+// Vertex 구조체
+// 점 하나가 가지는 정보 : 위치 (x, y, z)와 색상 (r, g, b, a)
+struct Vertex
+{
+    float position[3];
+    float color[4];
+};
 
 class D3D12Manager
 {
@@ -31,6 +41,14 @@ public:
     ComPtr<ID3D12Fence> fence;
     UINT64              fenceValue = 0;
     HANDLE              fenceEvent = nullptr;
+
+    // Vertex Buffer 관련 변수
+    ComPtr<ID3D12Resource>      vertexBuffer;
+    D3D12_VERTEX_BUFFER_VIEW    vertexBufferView;
+
+    // 파이프라인 관련 변수
+    ComPtr<ID3D12RootSignature> rootSignature;
+    ComPtr <ID3D12PipelineState> pipelineState;
 
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
@@ -131,8 +149,62 @@ public:
         fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
         if (fenceEvent == nullptr)
         {
-            // 에러 처리 : 이벤트를 못 만들면 안됨
+            // 에러 처리
         }
+
+        // 파이프라인(PSO) 구축 단계
+        // 빈 Root Signature 생성
+        // 셰이더에게 넘겨줄 매개변수(변환 행렬, 텍스처 등)의 형식을 정의
+        CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+        D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
+        d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
+
+        // shaders.hlsl 파일 컴파일
+#if defined(_DEBUG)
+        UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+        UINT compileFlags = 0;
+#endif
+        ComPtr<ID3DBlob> vertexShader;
+        ComPtr<ID3DBlob> pixelShader;
+        // shaders.hlsl 파일에서 VSMain 함수를 '정점 셰이더(vs_5_0)' 버전으로 컴파일
+        D3DCompileFromFile(L"shaders.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr);
+        // shaders.hlsl 파일에서 PSMain 함수를 '픽셀 셰이더(ps_5_0)' 버전으로 컴파일
+        D3DCompileFromFile(L"shaders.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr);
+
+        // Input Layout 정의
+        // Vertex 구조체 (C++ 데이터)가 셰이더의 파라미터 (POSITION, COLOR)와 어떻게 매칭되는지 설명해주는 표
+        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
+        {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            // 좌표 데이터 x,y,z 가 12바이트를 차지함
+            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+        };
+
+        // 파이프라인 상태 객체 (PSO) 생성
+        // 위에서 만든 셰이더, 레이아웃, 루트 시그니처 등을 하나로 뭉쳐서 GPU에게 규칙을 하달
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+        psoDesc.pRootSignature = rootSignature.Get();
+        psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
+        psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
+        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+        psoDesc.DepthStencilState.DepthEnable = FALSE; // 2D 게임이니 깊이 테스트는 일단 꺼둠
+        psoDesc.DepthStencilState.StencilEnable = FALSE;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleDesc.Count = 1;
+        d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState)); 
+
+        // Vertex Buffer 생성 함수
+        CreateVertexBuffer();
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -162,10 +234,36 @@ public:
         const float clearColor[] = { 0.1f, 0.1f, 0.3f, 1.0f };
         commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
+        // Output Merger 세팅: 앞으로 그릴 모든 Draw는 이 rtvHandle에 올림
+        commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+        // Draw Call 렌덜이
+        // ViewPort와 Scissor Rect 설정
+        // 도화지(800x600) 중에서 어느 영역에 그림을 그릴지 GPU에게 알려주는 영역 설정
+        D3D12_VIEWPORT viewport = { 0.0f, 0.0f, 800.0f, 600.0f, 0.0f, 1.0f };
+        D3D12_RECT scissorRect = { 0, 0, 800, 600 };
+        commandList->RSSetViewports(1, &viewport);
+        commandList->RSSetScissorRects(1, &scissorRect);
+
+        // PSO와 Root Signature 적용
+        commandList->SetGraphicsRootSignature(rootSignature.Get());
+        commandList->SetPipelineState(pipelineState.Get());
+
+        // 점들을 어떻게 이을지 결정 (삼각형 단위로 잇기 위해 TRIANGLELIST)
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        // 정점 버퍼 꺼내오기
+        commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+
+        // 그리기 명령 (점 6개를 써서 1개의 물체를 그리도록)
+        commandList->DrawInstanced(6, 1, 0, 0);
+
         // Resource Barrier 복구
         // 다 그렸으니 다시 유저에게 보여주기 위해 출력용 (PRESENT) 상태로 되돌림
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+
+        commandList->ResourceBarrier(1, &barrier);
 
         // 명령 기록 끝
         commandList->Close();
@@ -199,6 +297,66 @@ public:
 
         // GPU가 다 그렸으니 이제 다음 프레임에 쓸 도화지 번호 (0 또는 1)를 가져옴
         frameIndex = swapChain->GetCurrentBackBufferIndex();
+    }
+
+    void CreateVertexBuffer()
+    {
+        // 사각형을 이루는 점 6개 (삼각형 2개)의 데이터 배열
+        // 화면 정중앙을 (0,0)으로 두고 크기가 1인 사각형
+        Vertex quadVertices[] = {
+            // 첫 번째 삼각형
+            { { -0.5f, 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },  // 좌상단 (빨강)
+            { { 0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },   // 우상단 (초록)
+            { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }, // 좌하단 (파랑)
+
+            // 두 번쨰 삼각형
+            { { 0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } }, // 우상단 (초록)
+            { { 0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } }, // 우하단 (노랑)
+            { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }, // 좌하단 (파랑)
+        };
+
+        const UINT vertexBufferSize = sizeof(quadVertices);
+
+        // GPU 메모리에 Upload Heap 속성 설정
+        D3D12_HEAP_PROPERTIES heapProps = {};
+        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+        // 버퍼 (메모리 덩어리)의 크기 및 포맷 설정
+        D3D12_RESOURCE_DESC resourceDesc = {};
+        resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resourceDesc.Width = vertexBufferSize;
+        resourceDesc.Height = 1;
+        resourceDesc.DepthOrArraySize = 1;
+        resourceDesc.MipLevels = 1;
+        resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resourceDesc.SampleDesc.Count = 1;
+        resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        // 실제로 GPU 메모리 공간에 버퍼 (Resource) 생성
+        d3dDevice->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &resourceDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&vertexBuffer));
+
+        // CPU에 있는 배열 데이터를 GPU 메모리로 복사 (Map -> Copy -> Unmap)
+        UINT8* pVertexDataBegin;
+        D3D12_RANGE readRange = { 0,0 };    // CPU가 이 버퍼를 읽지는 않을 거라는 뜻
+
+        // GPU 메모리의 주소를 CPU가 접근할 수 있게 연결 (Map)
+        vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin));
+        // 데이터 복사하기
+        memcpy(pVertexDataBegin, quadVertices, sizeof(quadVertices));
+        // 복사 끝났으니 연결 해제 (Unmap)
+        vertexBuffer->Unmap(0, nullptr);
+
+        // 나중에 랜더링할 때 점 데이터 위치를 알려줄 View 설정
+        vertexBufferView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
+        vertexBufferView.StrideInBytes = sizeof(Vertex); // 점 1개의 크기
+        vertexBufferView.SizeInBytes = vertexBufferSize; // 전체 점들의 크기
     }
 };
 
@@ -254,6 +412,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 
+    // 게임 루프 시작 전에 초기화를 한 번만 실행!
+    D3D12Manager d3dManager;
+    d3dManager.Initialize(hWnd, 800, 600);
+
     // 메시지 루프 (게임 루프)
     // 프로그램이 종료될 때까지 계속해서 도는 무한 루프
     MSG msg = { 0 };
@@ -268,14 +430,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         }
         else
         {
-            // DX12 초기화를 실행
-            D3D12Manager d3dManager;
-            d3dManager.Initialize(hWnd, 800, 600);
-
-            // 윈도우 창을 화면에 표시
-            ShowWindow(hWnd, nCmdShow);
-            UpdateWindow(hWnd);
-
             d3dManager.Render();
         }
     }

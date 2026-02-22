@@ -5,6 +5,14 @@
     {
       "AbsoluteMoniker": "D:0:0:{4F179603-1088-4A73-90BF-FC31DAB4B5B2}|Survivors\\Survivors.vcxproj|C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\Survivors.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
       "RelativeMoniker": "D:0:0:{4F179603-1088-4A73-90BF-FC31DAB4B5B2}|Survivors\\Survivors.vcxproj|solutionrelative:Survivors\\Survivors.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4F179603-1088-4A73-90BF-FC31DAB4B5B2}|Survivors\\Survivors.vcxproj|C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\shaders.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{4F179603-1088-4A73-90BF-FC31DAB4B5B2}|Survivors\\Survivors.vcxproj|solutionrelative:Survivors\\shaders.hlsl||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{4F179603-1088-4A73-90BF-FC31DAB4B5B2}|Survivors\\Survivors.vcxproj|C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\d3dx12.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{4F179603-1088-4A73-90BF-FC31DAB4B5B2}|Survivors\\Survivors.vcxproj|solutionrelative:Survivors\\d3dx12.h||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
     }
   ],
   "DocumentGroupContainers": [
@@ -14,11 +22,37 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 3,
           "Children": [
             {
               "$type": "Bookmark",
               "Name": "ST:0:0:{ebe3f1d5-feac-4131-bf03-0e85ffb89a89}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "d3dx12.h",
+              "DocumentMoniker": "C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\d3dx12.h",
+              "RelativeDocumentMoniker": "Survivors\\d3dx12.h",
+              "ToolTip": "C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\d3dx12.h",
+              "RelativeToolTip": "Survivors\\d3dx12.h",
+              "ViewState": "AgIAAKMNAAAAAAAAAAAAAC8AAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000680|",
+              "WhenOpened": "2026-02-22T10:38:43.229Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "shaders.hlsl",
+              "DocumentMoniker": "C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\shaders.hlsl",
+              "RelativeDocumentMoniker": "Survivors\\shaders.hlsl",
+              "ToolTip": "C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\shaders.hlsl",
+              "RelativeToolTip": "Survivors\\shaders.hlsl",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABcAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002777|",
+              "WhenOpened": "2026-02-22T10:13:20.41Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
@@ -28,7 +62,7 @@
               "RelativeDocumentMoniker": "Survivors\\Survivors.cpp",
               "ToolTip": "C:\\Users\\pc\\source\\repos\\Survivors\\Survivors\\Survivors.cpp",
               "RelativeToolTip": "Survivors\\Survivors.cpp",
-              "ViewState": "AgIAAHYAAAAAAAAAAAAuwBEBAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAIoAAAAAAAAAAAAuwO4AAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2026-02-22T06:44:56.363Z",
               "EditorCaption": ""
