@@ -1,0 +1,13 @@
+# Visual Studio 임시 파일 및 캐시
+.vs/
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.ipch
+
+# 빌드 결과물
+Debug/
+Release/
+x64/
+x86/
