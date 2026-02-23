@@ -1,3 +1,3 @@
 ﻿  Survivors.cpp
-C:\Users\pc\source\repos\Survivors\Survivors\Survivors.cpp(374,93): warning C4229: anachronism used: modifiers on data are ignored
+C:\Users\pc\source\repos\Survivors\Survivors\Survivors.cpp(443,93): warning C4229: anachronism used: modifiers on data are ignored
   Survivors.vcxproj -> C:\Users\pc\source\repos\Survivors\x64\Debug\Survivors.exe

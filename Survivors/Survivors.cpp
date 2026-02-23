@@ -4,8 +4,11 @@
 #include <d3dcompiler.h>    // 셰이더 컴파일용 헤더
 #include <wrl.h>            // Comptr (스마트 포인터) 사용을 위함
 #include "d3dx12.h"         // 헬퍼 헤더
+#include <DirectXMath.h>
+#include "Utils.h"
 
 using namespace Microsoft::WRL;
+using namespace DirectX;
 
 // Vertex 구조체
 // 점 하나가 가지는 정보 : 위치 (x, y, z)와 색상 (r, g, b, a)
@@ -49,6 +52,17 @@ public:
     // 파이프라인 관련 변수
     ComPtr<ID3D12RootSignature> rootSignature;
     ComPtr <ID3D12PipelineState> pipelineState;
+
+    // 상수 버퍼와 위치 / 입력 변수
+    ComPtr<ID3D12Resource> constantBuffer;
+    UINT8* cbvDataBegin = nullptr;         // CPU가 쓸 데이터 주소
+
+    float playerX = 0.0f; // 플레이어의 X 위치
+    float playerY = 0.0f; // 플레이어의 Y 위치
+    float speed = 2.0f;   // 이동 속도
+
+    TimeManager timeMgr;
+    InputManager inputMgr;
 
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
@@ -153,10 +167,15 @@ public:
         }
 
         // 파이프라인(PSO) 구축 단계
-        // 빈 Root Signature 생성
+        // Root Signature 생성 (매개변수가 몇 개 들어가는지 알려줌)
+        CD3DX12_ROOT_PARAMETER rootParameters[1];
+        // 셰이더의 register(b0)에 CBV를 연결
+        rootParameters[0].InitAsConstantBufferView(0);
+
         // 셰이더에게 넘겨줄 매개변수(변환 행렬, 텍스처 등)의 형식을 정의
         CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-        rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+        // 파라미터 개수를 0에서 1로 배열 주소를 남겨둠
+        rootSignatureDesc.Init(1, rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
@@ -205,6 +224,54 @@ public:
 
         // Vertex Buffer 생성 함수
         CreateVertexBuffer();
+
+        // 상수 버퍼 (Constant Buffer) 생성
+        // DX12 규칙 : 상수 버퍼의 크기는 무조건 256의 배수여야 함
+        UINT cbSize = (sizeof(XMMATRIX) + 255) & ~255;
+
+        D3D12_HEAP_PROPERTIES cbHeapProps = {};
+        cbHeapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // CPU가 매 프레임 위치를 써야 하므로 Upload Heap
+
+        D3D12_RESOURCE_DESC cbDesc = {};
+        cbDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        cbDesc.Width = cbSize;
+        cbDesc.Height = 1;
+        cbDesc.DepthOrArraySize = 1;
+        cbDesc.MipLevels = 1;
+        cbDesc.Format = DXGI_FORMAT_UNKNOWN;
+        cbDesc.SampleDesc.Count = 1;
+        cbDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        cbDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        d3dDevice->CreateCommittedResource(&cbHeapProps, D3D12_HEAP_FLAG_NONE, &cbDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&constantBuffer));
+
+        // CPU가 데이터를 쓸 수 있도록 Map 해둠 (게임 끝날 때 까지 닫지 않음)
+        constantBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cbvDataBegin));
+
+        // 시간 관리자 시작
+        timeMgr.Initialize();
+    }
+
+    // 매 프레임 위치를 계산하고 GPU로 데이터를 쏴주는 함수
+    void Update()
+    {
+        timeMgr.Update();
+        float dt = timeMgr.GetDeltaTime();
+
+        // 입력 처리 (WASD 이동)
+        if (inputMgr.IsKeyPressed('W')) playerY += speed * dt;
+        if (inputMgr.IsKeyPressed('S')) playerY -= speed * dt;
+        if (inputMgr.IsKeyPressed('A')) playerX -= speed * dt;
+        if (inputMgr.IsKeyPressed('D')) playerX += speed * dt;
+
+        // XMATRIX로 이동 행렬 만들기
+        XMMATRIX translation = XMMatrixTranslation(playerX, playerY, 0.0f);
+
+        // HLSL(셰이더)은 수학 계산을 열 (Column) 기준으로 하기 때문에 행렬을 뒤집어서 (Transpose) 넘겨야 함
+        XMMATRIX cbvMatrix = XMMatrixTranspose(translation);
+
+        // MAP 해둔 GPU 메모리에 완성된 행렬 데이터를 복사 (이 순간 셰이더로 데이터가 넘어감)
+        memcpy(cbvDataBegin, &cbvMatrix, sizeof(XMMATRIX));
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -247,6 +314,8 @@ public:
 
         // PSO와 Root Signature 적용
         commandList->SetGraphicsRootSignature(rootSignature.Get());
+        // 아까 복사해둔 상수 버퍼 데이터(위치 정보)를 이 파이프라인에 묶음
+        commandList->SetGraphicsRootConstantBufferView(0, constantBuffer->GetGPUVirtualAddress());
         commandList->SetPipelineState(pipelineState.Get());
 
         // 점들을 어떻게 이을지 결정 (삼각형 단위로 잇기 위해 TRIANGLELIST)
@@ -430,6 +499,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         }
         else
         {
+            // Update로 위치 계산하고 Render로 그리기
+            d3dManager.Update();
             d3dManager.Render();
         }
     }
