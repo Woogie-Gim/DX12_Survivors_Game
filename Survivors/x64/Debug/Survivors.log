@@ -1,3 +1,6 @@
 ﻿  Survivors.cpp
-C:\Users\pc\source\repos\Survivors\Survivors\Survivors.cpp(443,93): warning C4229: anachronism used: modifiers on data are ignored
+C:\Users\pc\source\repos\Survivors\Survivors\GameObject.h(103,18): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+  (compiling source file 'Survivors.cpp')
+  
+C:\Users\pc\source\repos\Survivors\Survivors\Survivors.cpp(442,93): warning C4229: anachronism used: modifiers on data are ignored
   Survivors.vcxproj -> C:\Users\pc\source\repos\Survivors\x64\Debug\Survivors.exe

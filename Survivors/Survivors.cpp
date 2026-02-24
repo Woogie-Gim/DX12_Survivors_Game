@@ -6,6 +6,7 @@
 #include "d3dx12.h"         // 헬퍼 헤더
 #include <DirectXMath.h>
 #include "Utils.h"
+#include "GameObject.h"
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -63,6 +64,13 @@ public:
 
     TimeManager timeMgr;
     InputManager inputMgr;
+
+    // 플레이어 객체
+    Player player;
+
+    // 10마리 Enemy
+    static const int ENEMY_COUNT = 10;
+    Enemy enemies[ENEMY_COUNT];
 
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
@@ -225,28 +233,19 @@ public:
         // Vertex Buffer 생성 함수
         CreateVertexBuffer();
 
-        // 상수 버퍼 (Constant Buffer) 생성
-        // DX12 규칙 : 상수 버퍼의 크기는 무조건 256의 배수여야 함
-        UINT cbSize = (sizeof(XMMATRIX) + 255) & ~255;
+       // 플레이어 객체에서 자신의 메모리를 알아서 세팅하도록 명령
+        player.Initialize(d3dDevice.Get());
 
-        D3D12_HEAP_PROPERTIES cbHeapProps = {};
-        cbHeapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // CPU가 매 프레임 위치를 써야 하므로 Upload Heap
+        // 몬스터 10마리 초기화 및 스폰 위치 설정
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            enemies[i].Initialize(d3dDevice.Get());
 
-        D3D12_RESOURCE_DESC cbDesc = {};
-        cbDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        cbDesc.Width = cbSize;
-        cbDesc.Height = 1;
-        cbDesc.DepthOrArraySize = 1;
-        cbDesc.MipLevels = 1;
-        cbDesc.Format = DXGI_FORMAT_UNKNOWN;
-        cbDesc.SampleDesc.Count = 1;
-        cbDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        cbDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-        d3dDevice->CreateCommittedResource(&cbHeapProps, D3D12_HEAP_FLAG_NONE, &cbDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&constantBuffer));
-
-        // CPU가 데이터를 쓸 수 있도록 Map 해둠 (게임 끝날 때 까지 닫지 않음)
-        constantBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cbvDataBegin));
+            // 화면 밖이나 구석에서 스폰되도록 대충 위치를 분산
+            float spawnX = (float)(i % 5) * 0.5f - 1.0f; // -1.0 ~ 1.0 사이 분산
+            float spawnY = (float)(i / 5) * 0.5f + 0.5f;
+            enemies[i].SetPosition(spawnX, spawnY);
+        }
 
         // 시간 관리자 시작
         timeMgr.Initialize();
@@ -258,20 +257,15 @@ public:
         timeMgr.Update();
         float dt = timeMgr.GetDeltaTime();
 
-        // 입력 처리 (WASD 이동)
-        if (inputMgr.IsKeyPressed('W')) playerY += speed * dt;
-        if (inputMgr.IsKeyPressed('S')) playerY -= speed * dt;
-        if (inputMgr.IsKeyPressed('A')) playerX -= speed * dt;
-        if (inputMgr.IsKeyPressed('D')) playerX += speed * dt;
+        // 플레이어 객체 스스로 업데이트하도록 호출
+        player.Update(dt, inputMgr);
 
-        // XMATRIX로 이동 행렬 만들기
-        XMMATRIX translation = XMMatrixTranslation(playerX, playerY, 0.0f);
-
-        // HLSL(셰이더)은 수학 계산을 열 (Column) 기준으로 하기 때문에 행렬을 뒤집어서 (Transpose) 넘겨야 함
-        XMMATRIX cbvMatrix = XMMatrixTranspose(translation);
-
-        // MAP 해둔 GPU 메모리에 완성된 행렬 데이터를 복사 (이 순간 셰이더로 데이터가 넘어감)
-        memcpy(cbvDataBegin, &cbvMatrix, sizeof(XMMATRIX));
+        // 모든 Enemy가 플레이어의 위치를 향해 돌격
+        XMFLOAT3 playerPos = player.GetPosition();
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            enemies[i].Update(dt, playerPos);
+        }
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -315,7 +309,6 @@ public:
         // PSO와 Root Signature 적용
         commandList->SetGraphicsRootSignature(rootSignature.Get());
         // 아까 복사해둔 상수 버퍼 데이터(위치 정보)를 이 파이프라인에 묶음
-        commandList->SetGraphicsRootConstantBufferView(0, constantBuffer->GetGPUVirtualAddress());
         commandList->SetPipelineState(pipelineState.Get());
 
         // 점들을 어떻게 이을지 결정 (삼각형 단위로 잇기 위해 TRIANGLELIST)
@@ -324,8 +317,14 @@ public:
         // 정점 버퍼 꺼내오기
         commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 
-        // 그리기 명령 (점 6개를 써서 1개의 물체를 그리도록)
-        commandList->DrawInstanced(6, 1, 0, 0);
+        // 플레이어 객체 스스로 렌더링 하도록 명령서를 넘겨줌
+        player.Render(commandList.Get());
+
+        // Enemy 그리기
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            enemies[i].Render(commandList.Get());
+        }
 
         // Resource Barrier 복구
         // 다 그렸으니 다시 유저에게 보여주기 위해 출력용 (PRESENT) 상태로 되돌림
