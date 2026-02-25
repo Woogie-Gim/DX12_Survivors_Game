@@ -125,34 +125,29 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="d3dx12.h" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="GameObject.h" />
     <ClInclude Include="Resource.h" />
+    <ClInclude Include="Source\Objects\GameObject.h" />
+    <ClInclude Include="Source\Utils\d3dx12.h" />
+    <ClInclude Include="Source\Utils\stb_image.h" />
+    <ClInclude Include="Source\Utils\Utils.h" />
     <ClInclude Include="Survivors.h" />
     <ClInclude Include="targetver.h" />
-    <ClInclude Include="Utils.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="Survivors.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Survivors.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\Textures\enemy_sheet.png" />
+    <Image Include="Assets\Textures\player_sheet.png" />
     <Image Include="small.ico" />
     <Image Include="Survivors.ico" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">4.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">4.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
-      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">4.0</ShaderModel>
+    <ClCompile Include="Source\Core\Survivors.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Assets\Shaders\shaders.hlsl">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>
