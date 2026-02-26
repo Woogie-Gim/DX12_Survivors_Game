@@ -79,6 +79,9 @@
     <Image Include="Assets\Textures\enemy_sheet.png">
       <Filter>Assets\Textures</Filter>
     </Image>
+    <Image Include="Assets\Textures\map_bg.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Core\Survivors.cpp">

@@ -74,6 +74,9 @@ public:
     static const int ENEMY_COUNT = 10;
     Enemy enemies[ENEMY_COUNT];
 
+    // 배경 맵 객체 (순수 GameObject 사용)
+    GameObject background;
+
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
     {
@@ -236,6 +239,7 @@ public:
         psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
         psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
         psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+        psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;    // 뒷면도 투명하게 만들지 말고 무조건 그려라 (Culling 끄기)
         psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
         psoDesc.DepthStencilState.DepthEnable = FALSE; // 2D 게임이니 깊이 테스트는 일단 꺼둠
         psoDesc.DepthStencilState.StencilEnable = FALSE;
@@ -248,6 +252,15 @@ public:
 
         // Vertex Buffer 생성 함수
         CreateVertexBuffer();
+
+        // 맵 초기화 및 텍스처 로드
+        background.Initialize(d3dDevice.Get());
+        // 맵 이미지 파일 경로를 넣어주고 프레임은 무조건 1
+        background.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+
+        // 화면을 꽉 채우도록 크기를 크게 늘림 (1280 x 720 화면 비율에 맞추기)
+        background.SetScale(2.0f, 2.0f);
+        background.SetPosition(0.0f, 0.0f); // 화면 정중앙 배치
 
         // 플레이어 객체에서 자신의 메모리를 알아서 세팅하도록 명령
         // 플레이어 객체 세팅 & 텍스처 로드 (commandList 전달!)
@@ -287,14 +300,94 @@ public:
         timeMgr.Update();
         float dt = timeMgr.GetDeltaTime();
 
+        // background 먼저 호출
+        background.Update(dt);
+
+        // 충돌 범위 반지름 세팅
+        float playerRadius = 0.15f;
+        float enemyRadius = 0.04f;
+
+        // Player vs Enemy 충돌 검사 (속도 저하 로직)
+
+        // 매 프레임 플레이어의 속도를 원래 속도로 원상복구 시킴
+        player.currentSpeed = player.basespeed;
+        XMFLOAT3 playerPos = player.GetPosition();
+        bool isPlayerHit = false;
+
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            XMFLOAT3 enemyPos = enemies[i].GetPosition();
+            // 피타고라스의 정리
+            float dx = playerPos.x - enemyPos.x;
+            float dy = playerPos.y - enemyPos.y;
+            float dist = sqrt((dx * dx) + (dy * dy));
+
+            // 내 반지름 + 적 반지름 보다 거리가 짧으면? 충돌 (겹침) 발생
+            if (dist < playerRadius + enemyRadius)
+            {
+                isPlayerHit = true;
+                break;  // 하나라도 부딪히면 느려지므로 더 검사할 필요 없음
+            }
+        }
+
+        // 부딪혔다면 속도를 40%로 확 줄임
+        if (isPlayerHit)
+        {
+            player.currentSpeed = player.basespeed * 0.6f;
+            // 피격 시 빨간색으로 변경
+            player.SetTintColor(1.0f, 0.0f, 0.0f);
+        }
+        else
+        {
+            // 피격 받지 않을 시 원래 색상으로 변경
+            player.SetTintColor(1.0f, 1.0f, 1.0f);
+        }
+
         // 플레이어 객체 스스로 업데이트하도록 호출
         player.Update(dt, inputMgr);
 
+        // Enemy 이동 및 Enemy vs Enemy 충돌 검사
+
         // 모든 Enemy가 플레이어의 위치를 향해 돌격
-        XMFLOAT3 playerPos = player.GetPosition();
         for (int i = 0; i < ENEMY_COUNT; i++)
         {
             enemies[i].Update(dt, playerPos);
+        }
+        
+        // 적들 끼리 겹치지 않게 서로 밀어내기 (군집 형성의 핵심)
+        // i 번째 적과 j 번째 적을 모두 1:1로 짝지어서 비교하는 이중 for문
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            for (int j = i + 1; j < ENEMY_COUNT; j++)
+            {
+                XMFLOAT3 pos1 = enemies[i].GetPosition();
+                XMFLOAT3 pos2 = enemies[j].GetPosition();
+
+                float dx = pos2.x - pos1.x;
+                float dy = pos2.y - pos1.y;
+                float dist = sqrt((dx * dx) + (dy * dy));
+
+                // 두 적이 유지해야하는 최소 거리 (반지름 2배)
+                float minDistance = enemyRadius * 2.0f;
+
+                // 0.0001f 체크는 둘이 완벽하게 겹쳐서 거리가 0이 될 때 생기는 나눗셈 오류 방지
+                if (dist < minDistance && dist > 0.0001f)
+                {
+                    // 얼마나 겹쳤는지 계산
+                    float overlap = minDistance - dist;
+
+                    // 밀어낼 방향 (단위 벡터) 구하기
+                    float nx = dx / dist;
+                    float ny = dy / dist;
+
+                    // 각각 겹친 깊이의 절반(0.5) 만큼 반대 방향으로 밀어냄
+                    float pushX = nx * (overlap * 0.5f);
+                    float pushY = ny * (overlap * 0.5f);
+
+                    enemies[i].SetPosition(pos1.x - pushX, pos1.y - pushY);
+                    enemies[j].SetPosition(pos2.x + pushX, pos2.y + pushY);
+                }
+            }
         }
     }
 
@@ -328,7 +421,7 @@ public:
         // Output Merger 세팅: 앞으로 그릴 모든 Draw는 이 rtvHandle에 올림
         commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
-        // Draw Call 렌덜이
+        // Draw Call 렌더링
         // ViewPort와 Scissor Rect 설정
         // 도화지(800x600) 중에서 어느 영역에 그림을 그릴지 GPU에게 알려주는 영역 설정
         D3D12_VIEWPORT viewport = { 0.0f, 0.0f, 1280.0f, 720.0f, 0.0f, 1.0f };
@@ -346,6 +439,9 @@ public:
 
         // 정점 버퍼 꺼내오기
         commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+
+        // 배경 맵을 가장 먼저 그림 (캐릭터들이 파묻히지 않게 방지)
+        background.Render(commandList.Get());
 
         // 플레이어 객체 스스로 렌더링 하도록 명령서를 넘겨줌
         player.Render(commandList.Get());

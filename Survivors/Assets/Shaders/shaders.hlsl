@@ -6,6 +6,8 @@ cbuffer TransformBuffer : register(b0)
     matrix WorldMatrix;
     // x : 가로 이동, y : 세로 이동, z : 가로 크기, w : 세로 크기
     float4 uvOffsetScale;
+    // C++에서 넘겨준 생상 필터
+    float4 tintColor;
 };
 
 // 텍스처 이미지와 스포이트 (Sampler) 설정
@@ -45,5 +47,6 @@ float4 PSMain(PSInput input) : SV_Target
     clip(color.a - 0.1f);
     
     // 정점 셰이더가 넘겨준 색상을 그대로 SV_TARGET에 칠함
-    return color;
+    // 원래 색상에 틴트 컬러를 곱해서 출력 (흰색을 곱하면 그대로, 빨간색을 곱하면 붉게 변함)
+    return color * tintColor;
 }

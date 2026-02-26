@@ -14,6 +14,7 @@ struct CBData
 {
 	XMMATRIX worldMatrix;
 	XMFLOAT4 uvOffsetScale;	// x: Offset X, y: Offset Y, z: Scale X, w: Scale Y	
+	XMFLOAT4 tintColor;		// R, G, B, A 색상 필터
 };
 
 // Object들의 최상위 부모 클래스
@@ -38,6 +39,12 @@ protected:
 	int maxFrames = 1;
 	float frameTime = 0.0f;
 	float frameDuration = 0.033f;	// 0.033초마다 다음 동작으로 변경
+
+	// 현재 뒤집혔는지 기억하는 boolean
+	bool isFlipped = false;
+
+	// 기본은 하얀색 (원본 색상 유지)
+	XMFLOAT4 tintColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 public:
 	// 객체 생성 시 GPU에 자신만의 메모리 (상수 버퍼)를 할당
@@ -128,6 +135,15 @@ public:
 		device->CreateShaderResourceView(texture.Get(), &srvDesc, srvHeap->GetCPUDescriptorHandleForHeapStart());
 	}
 
+	// 밖에서 Flip 조작할 수 있는 함수
+	void SetFlipped(bool flipped) { isFlipped = flipped; }
+
+	// 밖에서 색상을 강제로 바꿀 수 있는 함수
+	void SetTintColor(float r, float g, float b, float a = 1.0f)
+	{
+		tintColor = { r, g, b, a };
+	}
+
 	// 매 프레임 자신의 위치를 행렬로 변환해 GPU로 전송
 	virtual void Update(float dt)
 	{
@@ -139,6 +155,9 @@ public:
 			frameTime = 0.0f;
 		}
 
+		// isFlipped가 true면 가로 크기를 음수(-)로 만듦
+		float realScaleX = isFlipped ? -scale.x : scale.x;
+
 		// 크기 행렬 만들기
 		XMMATRIX scaling = XMMatrixScaling(scale.x, scale.y, scale.z);
 
@@ -146,7 +165,7 @@ public:
 		XMMATRIX translation = XMMatrixTranslation(position.x, position.y, position.z);
 
 		// 두 행렬을 곱해서 최종 월드 행렬 완성 (무조건 크기 > 회전 > 이동 순서로 곱해야 함)
-		XMMATRIX worldMatrix = scaling * translation;
+		XMMATRIX worldMatrix =XMMatrixScaling(realScaleX, scale.y, scale.z) * XMMatrixTranslation(position.x, position.y, position.z);
 
 		// HLSL(셰이더)은 수학 계산을 열 (Column) 기준으로 하기 때문에 행렬을 뒤집어서 (Transpose) 넘겨야 함
 		CBData cbData;
@@ -157,6 +176,9 @@ public:
 		cbData.uvOffsetScale.w = 1.0f;									// Y축 비율 (보통 1줄 짜리 시트를 씀)
 		cbData.uvOffsetScale.x = currentFrame * cbData.uvOffsetScale.z; // X축 이동 (0.0 -> 0.25 -> 0.5 ...)
 		cbData.uvOffsetScale.y = 0.0f;									// Y축 이동
+
+		// 내 색상 정보를 GPU로 같이 넘김
+		cbData.tintColor = tintColor;
 
 		// MAP 해둔 GPU 메모리에 완성된 행렬 데이터를 복사 (이 순간 셰이더로 데이터가 넘어감)
 		memcpy(cbvDataBegin, &cbData, sizeof(CBData));
@@ -190,15 +212,31 @@ public:
 class Player : public GameObject
 {
 public:
-	float speed = 0.5f;
+	float basespeed = 0.5f;		// 원래 속도
+	float currentSpeed = 0.5f;	// 실제 적용될 현재 속도
 
 	// 플레이어만의 고유한 업데이트 로직 (키보드 입력)
 	void Update(float dt, InputManager& inputMgr)
 	{
-		if (inputMgr.IsKeyPressed('W')) position.y += speed * dt;
-		if (inputMgr.IsKeyPressed('S')) position.y -= speed * dt;
-		if (inputMgr.IsKeyPressed('A')) position.x -= speed * dt;
-		if (inputMgr.IsKeyPressed('D')) position.x += speed * dt;
+		if (inputMgr.IsKeyPressed('W') || inputMgr.IsKeyPressed(VK_UP))
+		{
+			position.y += currentSpeed * dt;
+		}
+
+		if (inputMgr.IsKeyPressed('S') || inputMgr.IsKeyPressed(VK_DOWN))
+		{
+			position.y -= currentSpeed * dt;
+		}
+		if (inputMgr.IsKeyPressed('A') || inputMgr.IsKeyPressed(VK_LEFT)) 
+		{
+			position.x -= currentSpeed * dt;
+			isFlipped = true;	// 왼쪽 볼 땐 뒤집기
+		}
+		if (inputMgr.IsKeyPressed('D') || inputMgr.IsKeyPressed(VK_RIGHT)) 
+		{
+			position.x += currentSpeed * dt;
+			isFlipped = false;	// 오른쪽 볼 땐 원상 복구
+		}
 
 		// 부모의 Update를 호출해서 변경된 위치를 GPU로 전송!
 		GameObject::Update(dt);
@@ -233,6 +271,16 @@ public:
 			// 단위 벡터 * 속도 * 시간 = 정확한 추적 이동
 			position.x += dirX * speed * dt;
 			position.y += dirY * speed * dt;
+		}
+
+		// 몬스터는 플레이어 위치와 내 위치를 비교해서 뒤집기
+		if (targetPos.x < position.x)
+		{
+			isFlipped = true;  // 플레이어가 내 왼쪽에 있으면 왼쪽 보기
+		}
+		else 
+		{
+			isFlipped = false; // 플레이어가 내 오른쪽에 있으면 오른쪽 보기
 		}
 
 		// 이동한 위치를 GPU(상수 버퍼)로 전송

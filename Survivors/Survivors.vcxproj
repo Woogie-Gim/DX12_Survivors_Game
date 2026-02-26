@@ -139,6 +139,7 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\Textures\enemy_sheet.png" />
+    <Image Include="Assets\Textures\map_bg.png" />
     <Image Include="Assets\Textures\player_sheet.png" />
     <Image Include="small.ico" />
     <Image Include="Survivors.ico" />
