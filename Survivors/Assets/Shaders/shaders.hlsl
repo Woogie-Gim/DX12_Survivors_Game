@@ -2,12 +2,12 @@
 // register(b0) : 0번 버퍼 공간 (Slot)을 쓰겠다
 cbuffer TransformBuffer : register(b0)
 {
-    // 사각형의 이동 / 회전 / 크기 정보를 담은 4 x 4 행렬
-    matrix WorldMatrix;
-    // x : 가로 이동, y : 세로 이동, z : 가로 크기, w : 세로 크기
-    float4 uvOffsetScale;
-    // C++에서 넘겨준 생상 필터
-    float4 tintColor;
+   
+    matrix WorldMatrix;      // 사각형의 이동 / 회전 / 크기 정보를 담은 4 x 4 행렬
+    float4 uvOffsetScale;   // x : 가로 이동, y : 세로 이동, z : 가로 크기, w : 세로 크기
+    float4 tintColor;      // C++에서 넘겨준 생상 필터
+    float objectType;
+    float3 padding;
 };
 
 // 텍스처 이미지와 스포이트 (Sampler) 설정
@@ -40,6 +40,24 @@ PSInput VSMain(float4 position : POSITION, float2 uv : TEXCOORD)
 // 정점들 사이의 빈 공간을 칠할 때 화면의 모든 픽셀에 대해 이 함수가 실행
 float4 PSMain(PSInput input) : SV_Target
 {
+    // float 값을 읽어서 정수형으로 반올림(round)해서 검사
+    // 원형 모드 (미사일)
+    if (round(objectType) == 1)
+    {
+        float dx = input.uv.x - 0.5f;
+        float dy = input.uv.y - 0.5f;
+        float dist = sqrt((dx * dx) + (dy * dy));
+        
+        clip(0.5f - dist);
+        return tintColor;
+    }
+    // 단색 사각형 모드 (HP바)
+    else if (round(objectType) == 2)
+    {
+        return tintColor;
+    }
+    
+    // 텍스처 모드 (배경맵, 캐릭터)
     // 스포이트로 텍스처 색상 추출
     float4 color = myTexture.Sample(mySampler, input.uv);
     

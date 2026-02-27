@@ -15,6 +15,8 @@ struct CBData
 	XMMATRIX worldMatrix;
 	XMFLOAT4 uvOffsetScale;	// x: Offset X, y: Offset Y, z: Scale X, w: Scale Y	
 	XMFLOAT4 tintColor;		// R, G, B, A 색상 필터
+	float objectType;		// objectType으로 Bullet, 체력바 등 구분
+	float padding[3];
 };
 
 // Object들의 최상위 부모 클래스
@@ -45,8 +47,12 @@ protected:
 
 	// 기본은 하얀색 (원본 색상 유지)
 	XMFLOAT4 tintColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+	int objectType = 0; // 기본 값은 텍스처 모드 (0)
 
 public:
+	// 밖에서 타입을 정할 수 있는 함수 추가
+	void SetObjectType(int type) { objectType = type; }
+	
 	// 객체 생성 시 GPU에 자신만의 메모리 (상수 버퍼)를 할당
 	virtual void Initialize(ID3D12Device* device)
 	{
@@ -179,6 +185,8 @@ public:
 
 		// 내 색상 정보를 GPU로 같이 넘김
 		cbData.tintColor = tintColor;
+		// objectType에 타입 정보 담기
+		cbData.objectType = (float)objectType;
 
 		// MAP 해둔 GPU 메모리에 완성된 행렬 데이터를 복사 (이 순간 셰이더로 데이터가 넘어감)
 		memcpy(cbvDataBegin, &cbData, sizeof(CBData));
@@ -191,6 +199,7 @@ public:
 		commandList->SetGraphicsRootConstantBufferView(0, constantBuffer->GetGPUVirtualAddress());
 
 		// 텍스처 정보 (SRV 목차) 연결
+		// srvHeap이 세팅된 (텍스처 로드한) 객체만 텍스처 목차를 연결
 		ID3D12DescriptorHeap* descriptorHeaps[] = { srvHeap.Get() };
 		commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 		commandList->SetGraphicsRootDescriptorTable(1, srvHeap->GetGPUDescriptorHandleForHeapStart());
@@ -214,6 +223,10 @@ class Player : public GameObject
 public:
 	float basespeed = 0.5f;		// 원래 속도
 	float currentSpeed = 0.5f;	// 실제 적용될 현재 속도
+
+	// 체력 변수
+	float maxHp = 100.0f;
+	float hp = 100.0f;
 
 	// 플레이어만의 고유한 업데이트 로직 (키보드 입력)
 	void Update(float dt, InputManager& inputMgr)
@@ -250,6 +263,11 @@ public:
 	// 플레이어(2.0f) 보다 살짝 느리게 설정
 	float speed = 0.25f;
 
+	// 체력 및 생존 변수 추가
+	float maxHp = 30.0f;
+	float hp = 30.0f;
+	bool isDead = false;	// HP가 0이 되면 true로 바뀜
+
 	// Enemy 업데이트 : 매 프레임 플레이어의 위치 (targetPos)를 받아서 그쪽으로 이동함
 	void Update(float dt, XMFLOAT3 targetPos)
 	{
@@ -284,6 +302,77 @@ public:
 		}
 
 		// 이동한 위치를 GPU(상수 버퍼)로 전송
+		GameObject::Update(dt);
+	}
+};
+
+// Bullet 클래스
+class Bullet : public GameObject
+{
+public:
+	float speed = 1.5f;		// 미사일 속도
+	float damage = 15.0f;	// 미사일 데미지
+	bool isDead = true;		// 처음엔 비활성화 (발사 대기) 상태
+
+	// 미사일 전용 Update : 적 배열을 통째로 넘겨받아서 스스로 타겟을 찾음
+	void Update(float dt, Enemy enemies[], int enemyCount)
+	{
+		// 죽은 미사일은 계산하지 않음
+		if (isDead) return;
+
+		// 가장 가까운 살아있는 적 찾기
+		float minDist = 9999.0f;
+		int targetIdx = -1;
+
+		for (int i = 0; i < enemyCount; i++)
+		{
+			if (enemies[i].isDead) continue;	// 죽은 적 무시
+
+			float dx = enemies[i].GetPosition().x - position.x;
+			float dy = enemies[i].GetPosition().y - position.y;
+			float dist = sqrt((dx * dx) + (dy * dy));
+
+			if (dist < minDist)
+			{
+				minDist = dist;
+				targetIdx = i;
+			}
+		}
+
+		// 타겟을 향해 날아가기
+		if (targetIdx != -1)
+		{
+			float dx = enemies[targetIdx].GetPosition().x - position.x;
+			float dy = enemies[targetIdx].GetPosition().y - position.y;
+			float dist = sqrt((dx * dx) + (dy * dy));
+
+			if (dist > 0.0f)
+			{
+				position.x += (dx / dist) * speed * dt;
+				position.y += (dy / dist) * speed * dt;
+			}
+
+			// 충돌 검사 (적에게 명중했을 때)
+			float hitRadius = 0.08f; // 미사일 폭발 범위
+			if (dist < hitRadius)
+			{
+				enemies[targetIdx].hp -= damage; // 적 HP 깎기
+
+				if (enemies[targetIdx].hp <= 0.0f)
+				{
+					enemies[targetIdx].isDead = true; // 적 사망 처리
+				}
+
+				isDead = true; // 적중 후 미사일 파괴
+			}
+		}
+		else
+		{
+			// 살아있는 적이 아무도 없으면 위로 그냥 날아감
+			position.y += speed * dt;
+		}
+
+		// 행렬 갱신
 		GameObject::Update(dt);
 	}
 };

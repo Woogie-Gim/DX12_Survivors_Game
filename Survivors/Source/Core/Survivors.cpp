@@ -77,6 +77,16 @@ public:
     // 배경 맵 객체 (순수 GameObject 사용)
     GameObject background;
 
+    // 미사일 배열 및 발사 타이머
+    static const int MAX_BULLETS = 50;
+    Bullet bullets[MAX_BULLETS];
+    float shootTimer = 0.0f;
+    float shootInterval = 0.5f; // 0.5초마다 1발씩 자동 발사
+
+    // 플레이어 HP바 (배경 1개, 게이지 1개)
+    GameObject hpBarBg;
+    GameObject hpBarFill;
+
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
     {
@@ -262,6 +272,29 @@ public:
         background.SetScale(2.0f, 2.0f);
         background.SetPosition(0.0f, 0.0f); // 화면 정중앙 배치
 
+        // HP 바 초기화 (배경 이미지를 불러오되 셰이더에서 사각형으로 덮어씀)
+        hpBarBg.Initialize(d3dDevice.Get());
+        hpBarBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+        hpBarBg.SetTintColor(0.2f, 0.2f, 0.2f); // 짙은 회색 배경
+        hpBarBg.SetObjectType(2);               // 사각형 사용
+
+        hpBarFill.Initialize(d3dDevice.Get());
+        hpBarFill.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+        hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f); // 초록색 체력
+        hpBarFill.SetObjectType(2);                 // 사각형 사용
+
+
+        // 미사일 초기화 (플레이어 이미지를 노란색으로 칠해서 구슬처럼 쏨)
+        for (int i = 0; i < MAX_BULLETS; i++)
+        {
+            bullets[i].Initialize(d3dDevice.Get());
+            bullets[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/player_sheet.png", 1);
+            bullets[i].SetScale(0.05f, 0.05f);
+            bullets[i].SetTintColor(1.0f, 1.0f, 0.0f); // 노란색
+            bullets[i].SetObjectType(1); // 완벽한 동그라미 사용
+            bullets[i].isDead = true; // 처음엔 다 숨겨둠
+        }
+        
         // 플레이어 객체에서 자신의 메모리를 알아서 세팅하도록 명령
         // 플레이어 객체 세팅 & 텍스처 로드 (commandList 전달!)
         player.Initialize(d3dDevice.Get());
@@ -303,6 +336,31 @@ public:
         // background 먼저 호출
         background.Update(dt);
 
+        // 자동 유도 미사일 발사 롲기
+        shootTimer += dt;
+        if (shootTimer >= shootInterval)
+        {
+            shootTimer = 0.0f; // 타이머 초기화
+            
+            // 배열에서 isDead된 미사일을 하나 찾아서 발사
+            for (int i = 0; i < MAX_BULLETS; i++)
+            {
+                if (bullets[i].isDead)
+                {
+                    bullets[i].isDead = false;
+                    // 플레이어 몸 한가운데서 스폰
+                    bullets[i].SetPosition(player.GetPosition().x, player.GetPosition().y);
+                    break;
+                }
+            }
+        }
+
+        // 살아 있는 미사일들 업데이트
+        for (int i = 0; i < MAX_BULLETS; i++)
+        {
+            bullets[i].Update(dt, enemies, ENEMY_COUNT);
+        }
+
         // 충돌 범위 반지름 세팅
         float playerRadius = 0.15f;
         float enemyRadius = 0.04f;
@@ -316,6 +374,8 @@ public:
 
         for (int i = 0; i < ENEMY_COUNT; i++)
         {
+            if (enemies[i].isDead) continue; // 죽은 적과는 부딪히지 않음
+
             XMFLOAT3 enemyPos = enemies[i].GetPosition();
             // 피타고라스의 정리
             float dx = playerPos.x - enemyPos.x;
@@ -336,6 +396,12 @@ public:
             player.currentSpeed = player.basespeed * 0.6f;
             // 피격 시 빨간색으로 변경
             player.SetTintColor(1.0f, 0.0f, 0.0f);
+
+            // 피격 시 dt(시간)을 곱해서 초당 데미지(DPS)를 줌
+            player.hp -= 5.0f * dt;
+
+            // 체력이 음수로 안 내려가게 방지
+            if (player.hp < 0.0f) player.hp = 0.0f;
         }
         else
         {
@@ -351,6 +417,9 @@ public:
         // 모든 Enemy가 플레이어의 위치를 향해 돌격
         for (int i = 0; i < ENEMY_COUNT; i++)
         {
+            // 죽은 적은 움직이지 않음
+            if (enemies[i].isDead) continue;
+
             enemies[i].Update(dt, playerPos);
         }
         
@@ -358,6 +427,9 @@ public:
         // i 번째 적과 j 번째 적을 모두 1:1로 짝지어서 비교하는 이중 for문
         for (int i = 0; i < ENEMY_COUNT; i++)
         {
+            // 죽은 적은 밀어내기 제외
+            if (enemies[i].isDead) continue;
+
             for (int j = i + 1; j < ENEMY_COUNT; j++)
             {
                 XMFLOAT3 pos1 = enemies[i].GetPosition();
@@ -389,6 +461,35 @@ public:
                 }
             }
         }
+
+        // HP바 크기와 위치 실시간 계산
+        // 배경(까만 줄) 위치: 플레이어 발 밑 (y - 0.2f)
+        float barWidth = 0.12f;      // 체력바 전체 가로길이
+        float barHeight = 0.02f;    // 체력바 세로 두께
+
+        // 배경(까만 줄) 위치: 플레이어 발 밑 중앙 (y - 0.25f)
+        float hpY = player.GetPosition().y - 0.25f; // 플레이어 위치보다 살짝 아래
+        hpBarBg.SetPosition(player.GetPosition().x, hpY);
+        hpBarBg.SetScale(0.12f, 0.02f); // 가로 0.12, 세로 0.02 짜리 막대기
+        hpBarBg.Update(0.0f); // 애니메이션 없으므로 0.0f 전달
+
+        // 체력 게이지(초록 줄) 계산
+        float hpRatio = player.hp / player.maxHp;
+        if (hpRatio < 0.0f) hpRatio = 0.0f; // 마이너스 방지
+
+        float currentWidth = barWidth * hpRatio; // 현재 체력만큼 깎인 길이
+
+        // 가운데 정렬이 아니라 왼쪽부터 깎이도록 X축(offset)을 밀어 줌
+        float offset = (barWidth - currentWidth) * 0.5f;
+
+        hpBarFill.SetPosition(player.GetPosition().x - offset, hpY);
+        hpBarFill.SetScale(currentWidth, barHeight);
+
+        // 피가 30% 이하면 빨간색으로 변경
+        if (hpRatio <= 0.3f) hpBarFill.SetTintColor(1.0f, 0.0f, 0.0f);
+        else hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f);
+
+        hpBarFill.Update(0.0f);
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -443,13 +544,29 @@ public:
         // 배경 맵을 가장 먼저 그림 (캐릭터들이 파묻히지 않게 방지)
         background.Render(commandList.Get());
 
+        // 살아있는 적만 그리기 (죽으면 자연스럽게 화면에서 사라짐)
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            if (!enemies[i].isDead)
+            {
+                enemies[i].Render(commandList.Get());
+            }
+        }
+
         // 플레이어 객체 스스로 렌더링 하도록 명령서를 넘겨줌
         player.Render(commandList.Get());
 
-        // Enemy 그리기
-        for (int i = 0; i < ENEMY_COUNT; i++)
+        // 발 밑에 체력바 덧그리기 (배경, 초록색 게이지 순서)
+        hpBarBg.Render(commandList.Get());
+        hpBarFill.Render(commandList.Get());
+
+        // 날아다니는 미사일들 맨 위에 그리기
+        for (int i = 0; i < MAX_BULLETS; i++)
         {
-            enemies[i].Render(commandList.Get());
+            if (!bullets[i].isDead)
+            {
+                bullets[i].Render(commandList.Get());
+            }
         }
 
         // Resource Barrier 복구

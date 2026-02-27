@@ -1,8 +1,14 @@
 ﻿  Survivors.cpp
-C:\Users\pc\source\repos\Survivors\Survivors\Source\Objects\GameObject.h(261,18): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\pc\source\repos\Survivors\Survivors\Source\Objects\GameObject.h(279,18): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
   (compiling source file 'Source/Core/Survivors.cpp')
   
-C:\Users\pc\source\repos\Survivors\Survivors\Source\Core\Survivors.cpp(323,24): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
-C:\Users\pc\source\repos\Survivors\Survivors\Source\Core\Survivors.cpp(368,28): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
-C:\Users\pc\source\repos\Survivors\Survivors\Source\Core\Survivors.cpp(568,93): warning C4229: anachronism used: modifiers on data are ignored
+C:\Users\pc\source\repos\Survivors\Survivors\Source\Objects\GameObject.h(333,15): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+  (compiling source file 'Source/Core/Survivors.cpp')
+  
+C:\Users\pc\source\repos\Survivors\Survivors\Source\Objects\GameObject.h(347,15): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+  (compiling source file 'Source/Core/Survivors.cpp')
+  
+C:\Users\pc\source\repos\Survivors\Survivors\Source\Core\Survivors.cpp(383,24): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\pc\source\repos\Survivors\Survivors\Source\Core\Survivors.cpp(440,28): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\pc\source\repos\Survivors\Survivors\Source\Core\Survivors.cpp(685,93): warning C4229: anachronism used: modifiers on data are ignored
   Survivors.vcxproj -> C:\Users\pc\source\repos\Survivors\x64\Debug\Survivors.exe
