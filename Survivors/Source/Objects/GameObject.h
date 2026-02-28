@@ -49,9 +49,19 @@ protected:
 	XMFLOAT4 tintColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 	int objectType = 0; // 기본 값은 텍스처 모드 (0)
 
+	// 카메라와 UV 스크롤 변수
+	XMFLOAT2 cameraPos = { 0.0f, 0.0f };	// 카메라 위치
+	XMFLOAT2 uvScroll = { 0.0f, 0.0f }; // 런닝머신처럼 텍스처를 돌릴 수치
+	XMFLOAT2 uvScale = { 1.0f, 1.0f };	// 텍스처 타일링(반복) 배율
+
 public:
 	// 밖에서 타입을 정할 수 있는 함수 추가
 	void SetObjectType(int type) { objectType = type; }
+
+	// 외부에서 카메라와 UV를 세팅하는 함수
+	void SetCameraPos(float cx, float cy) { cameraPos = { cx, cy }; }
+	void SetUVScroll(float u, float v) { uvScroll = { u, v }; }
+	void SetUVScale(float u, float v) { uvScale = { u, v }; }
 	
 	// 객체 생성 시 GPU에 자신만의 메모리 (상수 버퍼)를 할당
 	virtual void Initialize(ID3D12Device* device)
@@ -164,24 +174,22 @@ public:
 		// isFlipped가 true면 가로 크기를 음수(-)로 만듦
 		float realScaleX = isFlipped ? -scale.x : scale.x;
 
-		// 크기 행렬 만들기
-		XMMATRIX scaling = XMMatrixScaling(scale.x, scale.y, scale.z);
-
-		// XMATRIX로 이동 행렬 만들기
-		XMMATRIX translation = XMMatrixTranslation(position.x, position.y, position.z);
-
-		// 두 행렬을 곱해서 최종 월드 행렬 완성 (무조건 크기 > 회전 > 이동 순서로 곱해야 함)
-		XMMATRIX worldMatrix =XMMatrixScaling(realScaleX, scale.y, scale.z) * XMMatrixTranslation(position.x, position.y, position.z);
+		// 두 행렬 (크기 행렬과 이동 행렬) 을 곱해서 최종 월드 행렬 완성 (무조건 크기 > 회전 > 이동 순서로 곱해야 함)
+		// 진짜 내 위치에서 카메라 위치를 뺀 곳에 렌더링
+		XMMATRIX worldMatrix = XMMatrixScaling(realScaleX, scale.y, scale.z) * XMMatrixTranslation(position.x - cameraPos.x, position.y - cameraPos.y, position.z);
 
 		// HLSL(셰이더)은 수학 계산을 열 (Column) 기준으로 하기 때문에 행렬을 뒤집어서 (Transpose) 넘겨야 함
 		CBData cbData;
 		cbData.worldMatrix = XMMatrixTranspose(worldMatrix);
 
 		// 전체 이미지에서 지금 프레임 영역만 자르는 UV 계산
-		cbData.uvOffsetScale.z = 1.0f / maxFrames;						// X축 비율 (예 : 4프레임이면 0.25)
-		cbData.uvOffsetScale.w = 1.0f;									// Y축 비율 (보통 1줄 짜리 시트를 씀)
-		cbData.uvOffsetScale.x = currentFrame * cbData.uvOffsetScale.z; // X축 이동 (0.0 -> 0.25 -> 0.5 ...)
-		cbData.uvOffsetScale.y = 0.0f;									// Y축 이동
+		float frameWidth = 1.0f / maxFrames;							// 한 프레임의 가로 비율
+		cbData.uvOffsetScale.z = frameWidth * uvScale.x;
+		cbData.uvOffsetScale.w = 1.0f * uvScale.y;
+
+		// 기본 애니메이션 이동 + 강제 텍스처 스크롤 (uvScroll) 합치기
+		cbData.uvOffsetScale.x = (currentFrame * frameWidth) + uvScroll.x;
+		cbData.uvOffsetScale.y = uvScroll.y;
 
 		// 내 색상 정보를 GPU로 같이 넘김
 		cbData.tintColor = tintColor;
