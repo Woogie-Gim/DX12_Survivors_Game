@@ -62,6 +62,10 @@ public:
 	void SetCameraPos(float cx, float cy) { cameraPos = { cx, cy }; }
 	void SetUVScroll(float u, float v) { uvScroll = { u, v }; }
 	void SetUVScale(float u, float v) { uvScale = { u, v }; }
+
+	// 애니메이션 강제 조작 스위치
+	void SetFrame(int frame) { currentFrame = frame; }
+	void SetFrameDuration(float duration) { frameDuration = duration; }
 	
 	// 객체 생성 시 GPU에 자신만의 메모리 (상수 버퍼)를 할당
 	virtual void Initialize(ID3D12Device* device)
@@ -208,9 +212,13 @@ public:
 
 		// 텍스처 정보 (SRV 목차) 연결
 		// srvHeap이 세팅된 (텍스처 로드한) 객체만 텍스처 목차를 연결
-		ID3D12DescriptorHeap* descriptorHeaps[] = { srvHeap.Get() };
-		commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-		commandList->SetGraphicsRootDescriptorTable(1, srvHeap->GetGPUDescriptorHandleForHeapStart());
+		// 이미지를 성공적으로 불러와서 srvHeap이 존재할 때만 텍스처를 연결
+		if (srvHeap != nullptr)
+		{
+			ID3D12DescriptorHeap* descriptorHeaps[] = { srvHeap.Get() };
+			commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+			commandList->SetGraphicsRootDescriptorTable(1, srvHeap->GetGPUDescriptorHandleForHeapStart());
+		}
 
 		// 물체 그리기
 		commandList->DrawInstanced(6, 1, 0, 0);
@@ -235,6 +243,11 @@ public:
 	// 체력 변수
 	float maxHp = 100.0f;
 	float hp = 100.0f;
+
+	// 레벨업 시스템 변수
+	int level = 1;
+	float exp = 0.0f;
+	float maxExp = 100.0f;	// 이 수치가 다 차면 레벨업
 
 	// 플레이어만의 고유한 업데이트 로직 (키보드 입력)
 	void Update(float dt, InputManager& inputMgr)
@@ -322,65 +335,76 @@ public:
 	float damage = 15.0f;	// 미사일 데미지
 	bool isDead = true;		// 처음엔 비활성화 (발사 대기) 상태
 
-	// 미사일 전용 Update : 적 배열을 통째로 넘겨받아서 스스로 타겟을 찾음
-	void Update(float dt, Enemy enemies[], int enemyCount)
+	// 미사일 전용 Update 메인 루프에서 다 계산해주므로 이제 가볍게 행렬만 갱신
+	void Update(float dt)
 	{
 		// 죽은 미사일은 계산하지 않음
 		if (isDead) return;
 
-		// 가장 가까운 살아있는 적 찾기
-		float minDist = 9999.0f;
-		int targetIdx = -1;
+		// 부모(GameObject)의 행렬 갱신만 호출
+		GameObject::Update(dt);
+	}
+};
 
-		for (int i = 0; i < enemyCount; i++)
+// 경험치 젬 (Gem) 클래스 
+class Gem : public GameObject
+{
+public:
+	bool isDead = true;
+	float expValue = 20.0f; // 보석 하나 당 경험치
+	
+	void Update(float dt, Player& player)
+	{
+		if (isDead) return;
+
+		// 플레이어와의 거리 계산
+		float dx = player.GetPosition().x - position.x;
+		float dy = player.GetPosition().y - position.y;
+		float dist = sqrt((dx * dx) + (dy * dy));
+
+		// 획득 범위 (플레이어 몸에 닿으면 경험치 획득)
+		float pickupRadius = 0.15f;
+		if (dist < pickupRadius)
 		{
-			if (enemies[i].isDead) continue;	// 죽은 적 무시
+			player.exp += expValue;
 
-			float dx = enemies[i].GetPosition().x - position.x;
-			float dy = enemies[i].GetPosition().y - position.y;
-			float dist = sqrt((dx * dx) + (dy * dy));
-
-			if (dist < minDist)
+			// 경험치 다 차면 레벨업
+			if (player.exp >= player.maxExp)
 			{
-				minDist = dist;
-				targetIdx = i;
+				player.exp -= player.maxExp;
+				player.maxExp *= 1.5f; // 다음 레벨업 요구량 1.5배 증가
+				player.level++;
 			}
+			isDead = true; // 획득한 보석은 파괴
 		}
 
-		// 타겟을 향해 날아가기
-		if (targetIdx != -1)
+		GameObject::Update(dt);
+	}
+};
+
+// 피격 데미지 텍스트 (DamageText) 클래스 추가
+class DamageText : public GameObject
+{
+public:
+	bool isDead = true;
+	float lifeTime = 0.0f;
+	float maxLife = 0.5f;	// 0.5초 동안만 화면에 떠 있음
+
+	void Update(float dt)
+	{
+		if (isDead) return;
+
+		lifeTime += dt;
+
+		// 위로 살살 떠오르는 연출
+		position.y += 0.5f * dt;
+
+		// 수명이 다하면 삭제
+		if (lifeTime >= maxLife)
 		{
-			float dx = enemies[targetIdx].GetPosition().x - position.x;
-			float dy = enemies[targetIdx].GetPosition().y - position.y;
-			float dist = sqrt((dx * dx) + (dy * dy));
-
-			if (dist > 0.0f)
-			{
-				position.x += (dx / dist) * speed * dt;
-				position.y += (dy / dist) * speed * dt;
-			}
-
-			// 충돌 검사 (적에게 명중했을 때)
-			float hitRadius = 0.08f; // 미사일 폭발 범위
-			if (dist < hitRadius)
-			{
-				enemies[targetIdx].hp -= damage; // 적 HP 깎기
-
-				if (enemies[targetIdx].hp <= 0.0f)
-				{
-					enemies[targetIdx].isDead = true; // 적 사망 처리
-				}
-
-				isDead = true; // 적중 후 미사일 파괴
-			}
-		}
-		else
-		{
-			// 살아있는 적이 아무도 없으면 위로 그냥 날아감
-			position.y += speed * dt;
+			isDead = true;
 		}
 
-		// 행렬 갱신
 		GameObject::Update(dt);
 	}
 };

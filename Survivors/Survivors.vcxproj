@@ -138,7 +138,9 @@
     <ResourceCompile Include="Survivors.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\Textures\damage_font.png" />
     <Image Include="Assets\Textures\enemy_sheet.png" />
+    <Image Include="Assets\Textures\gem.png" />
     <Image Include="Assets\Textures\map_bg.png" />
     <Image Include="Assets\Textures\player_sheet.png" />
     <Image Include="small.ico" />

@@ -87,6 +87,20 @@ public:
     GameObject hpBarBg;
     GameObject hpBarFill;
 
+    // 젬, 데미지 텍스트, EXP 바
+    static const int MAX_GEMS = 200;
+    Gem gems[MAX_GEMS];
+
+    static const int MAX_DMG_TEXTS = 50;
+    DamageText dmgTexts[MAX_DMG_TEXTS];
+
+    GameObject expBarBg;
+    GameObject expBarFill;
+
+    // 레벨 UI 배경과 레벨 텍스트 선언
+    GameObject levelBg;
+    GameObject levelText;
+
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
     {
@@ -317,6 +331,66 @@ public:
             enemies[i].SetPosition(spawnX, spawnY);
         }
 
+        // 경험치 바 (EXP Bar) 초기화
+        expBarBg.Initialize(d3dDevice.Get());
+        expBarBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+        expBarBg.SetTintColor(0.0f, 0.0f, 0.2f); // 짙은 파란색 (배경)
+        expBarBg.SetObjectType(2); // 사각형 사용
+
+        expBarFill.Initialize(d3dDevice.Get());
+        expBarFill.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+        expBarFill.SetTintColor(0.0f, 0.5f, 1.0f); // 밝은 파란색 (채워지는 바)
+        expBarFill.SetObjectType(2); // 사각형 사용
+
+        // 레벨 배경 UI 초기화
+        levelBg.Initialize(d3dDevice.Get());
+        // 이미지 이름은 실제 저장하신 파일명과 완벽히 똑같이 맞춰주세요!
+        levelBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/level_bg.png", 1);
+        levelBg.SetScale(0.1f, 0.15f);
+        levelBg.SetObjectType(0);
+
+        // 레벨 숫자 텍스트 (데미지 폰트 재활용)
+        levelText.Initialize(d3dDevice.Get());
+        levelText.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/damage_font.png", 10);
+        levelText.SetScale(0.03f, 0.045f);
+        levelText.SetTintColor(1.0f, 1.0f, 1.0f);
+        levelText.SetObjectType(0);
+        levelText.SetFrameDuration(9999.0f); // 애니메이션 멈춤
+
+        // 경험치 젬 초기화
+        for (int i = 0; i < MAX_GEMS; i++)
+        {
+            gems[i].Initialize(d3dDevice.Get());
+
+            // "gem.png" 같은 진짜 보석 이미지 파일 경로로 변경
+            gems[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/gem.png", 1);
+            gems[i].SetScale(0.04f, 0.06f);
+
+            // 텍스처 원본 색상을 그대로 보여주기 위해 틴트 컬러를 흰색(1,1,1)으로 초기화
+            gems[i].SetTintColor(1.0f, 1.0f, 1.0f);
+
+            // 진짜 텍스처를 그리는 모드(0)로 변경
+            gems[i].SetObjectType(0);
+
+            gems[i].isDead = true;
+        }
+
+        // 데미지 텍스트 초기화
+        for (int i = 0; i < MAX_DMG_TEXTS; i++)
+        {
+            dmgTexts[i].Initialize(d3dDevice.Get());
+            // 숫자 0~9 가 일렬로 나열된 스프라이트 시트
+            // 숫자가 10개이므로 프레임 수를 '10'으로 설정하여 이미지를 10등분
+            dmgTexts[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/damage_font.png", 10);
+            dmgTexts[i].SetScale(0.04f, 0.06f);
+            dmgTexts[i].SetTintColor(1.0f, 1.0f, 1.0f);
+            dmgTexts[i].SetObjectType(0);
+            // 애니메이션 영원히 정지
+            dmgTexts[i].SetFrameDuration(9999.0f);
+
+            dmgTexts[i].isDead = true;
+        }
+
         // 모든 텍스처 복사 명령 기록이 끝났으니 Close() 하고 한 방에 실행
         commandList->Close();
         ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
@@ -440,12 +514,87 @@ public:
             }
         }
 
-        // 살아 있는 미사일들 업데이트
+        // 살아 있는 미사일들 업데이트, 젬과 데미지 생성
         for (int i = 0; i < MAX_BULLETS; i++)
         {
             if (bullets[i].isDead) continue;
-            bullets[i].SetCameraPos(camPos.x, camPos.y); // 미사일에게도 카메라 위치 전달                    
-            bullets[i].Update(dt, enemies, ENEMY_COUNT);
+            bullets[i].SetCameraPos(camPos.x, camPos.y); // 미사일에게도 카메라 위치 전달
+
+            // 미사일 로직을 밖으로 빼서 메인루프에서 적의 죽음을 캐치
+            float minDist = 9999.0f;
+            int targetIdx = -1;
+
+            // 타겟 찾기
+            for (int j = 0; j < ENEMY_COUNT; j++)
+            {
+                if (enemies[j].isDead) continue;
+                float dx = enemies[j].GetPosition().x - bullets[i].GetPosition().x;
+                float dy = enemies[j].GetPosition().y - bullets[i].GetPosition().y;
+                float dist = sqrt((dx * dx) + (dy * dy));
+                if (dist < minDist) { minDist = dist; targetIdx = j; }
+            }
+
+            // 날아가기 및 명중 처리
+            if (targetIdx != -1)
+            {
+                float dx = enemies[targetIdx].GetPosition().x - bullets[i].GetPosition().x;
+                float dy = enemies[targetIdx].GetPosition().y - bullets[i].GetPosition().y;
+                float dist = sqrt((dx * dx) + (dy * dy));
+
+                if (dist > 0.0f)
+                {
+                    bullets[i].SetPosition(bullets[i].GetPosition().x + (dx / dist) * bullets[i].speed * dt,
+                        bullets[i].GetPosition().y + (dy / dist) * bullets[i].speed * dt);
+                }
+
+                // 적중
+                float hitRadius = 0.08f;
+                if (dist < hitRadius)
+                {
+                    enemies[targetIdx].hp -= bullets[i].damage;
+                    bullets[i].isDead = true;
+
+                    // 데미지 텍스트 팝업 띄우기
+                    for (int k = 0; k < MAX_DMG_TEXTS; k++)
+                    {
+                        if (dmgTexts[k].isDead)
+                        {
+                            dmgTexts[k].isDead = false;
+                            dmgTexts[k].lifeTime = 0.0f;
+                            dmgTexts[k].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y + 0.1f);
+
+                            // 15 데미지면 일단 '5' (프레임 번호 5)를 띄우게 만듦
+                            // 한 자릿수만 띄울 수 있으므로 임시로 1의 자리를 구해서 띄움
+                            int dmgValue = (int)bullets[i].damage; // 15
+                            dmgTexts[k].SetFrame(dmgValue % 10);   // 15 % 10 = 5번 프레임(숫자 5)
+
+                            break;
+                        }
+                    }
+
+                    // 적이 죽었다면 경험치 젬 드롭
+                    if (enemies[targetIdx].hp <= 0.0f)
+                    {
+                        enemies[targetIdx].isDead = true;
+
+                        for (int g = 0; g < MAX_GEMS; g++)
+                        {
+                            if (gems[g].isDead)
+                            {
+                                gems[g].isDead = false;
+                                gems[g].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                bullets[i].SetPosition(bullets[i].GetPosition().x, bullets[i].GetPosition().y + bullets[i].speed * dt);
+            }
+
+            bullets[i].Update(dt);
         }
 
         // Enemy 이동 및 Enemy vs Enemy 충돌 검사
@@ -501,6 +650,22 @@ public:
             }
         }
 
+        // 젬 초기화 (플레이어에게 다가가서 먹히기)
+        for (int i = 0; i < MAX_GEMS; i++)
+        {
+            if (gems[i].isDead) continue;
+            gems[i].SetCameraPos(camPos.x, camPos.y);
+            gems[i].Update(dt, player);
+        }
+
+        // 데미지 텍스트 초기화
+        for (int i = 0; i < MAX_DMG_TEXTS; i++)
+        {
+            if (dmgTexts[i].isDead) continue;
+            dmgTexts[i].SetCameraPos(camPos.x, camPos.y);
+            dmgTexts[i].Update(dt);
+        }
+
         // HP바 크기와 위치 실시간 계산
         float barWidth = 0.12f;      // 체력바 전체 가로길이
         float barHeight = 0.02f;    // 체력바 세로 두께
@@ -527,6 +692,43 @@ public:
         else hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f);
 
         hpBarFill.Update(0.0f);
+
+        // EXP 바 (화면 맨 위에 고정)
+        float expBarWidth = 2.0f;  // 화면 꽉 차는 가로 길이 (-1.0 ~ 1.0)
+        float expBarHeight = 0.05f; // 두께
+
+        // 카메라 기준 화면 맨 위 (y + 0.95f 언저리)
+        float expY = camPos.y + 0.95f;
+
+        expBarBg.SetPosition(camPos.x, expY);
+        expBarBg.SetCameraPos(camPos.x, camPos.y);
+        expBarBg.SetScale(expBarWidth, expBarHeight);
+        expBarBg.Update(0.0f);
+
+        float expRatio = player.exp / player.maxExp;
+        if (expRatio > 1.0f) expRatio = 1.0f;
+
+        float currentExpWidth = expBarWidth * expRatio;
+        float expOffset = (expBarWidth - currentExpWidth) * 0.5f;
+
+        expBarFill.SetPosition(camPos.x - expOffset, expY);
+        expBarFill.SetCameraPos(camPos.x, camPos.y);
+        expBarFill.SetScale(currentExpWidth, expBarHeight);
+        expBarFill.Update(0.0f);
+
+        // 레벨 UI (EXP 바 바로 아래 중앙에 배치)
+        float lvlY = camPos.y + 0.85f; // EXP 바(0.95f) 보다 살짝 아래
+
+        levelBg.SetPosition(camPos.x, lvlY);
+        levelBg.SetCameraPos(camPos.x, camPos.y);
+        levelBg.Update(0.0f);
+
+        // 플레이어의 현재 레벨(1의 자리)을 폰트로 띄움
+        levelText.SetFrame(player.level % 10);
+        // 텍스트를 배경 위에 완벽히 겹치게 배치
+        levelText.SetPosition(camPos.x, lvlY);
+        levelText.SetCameraPos(camPos.x, camPos.y);
+        levelText.Update(0.0f);
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -590,6 +792,10 @@ public:
             }
         }
 
+        // 경험치 젬 그리기 (플레이어보다 바닥에)
+        for (int i = 0; i < MAX_GEMS; i++)
+            if (!gems[i].isDead) gems[i].Render(commandList.Get());
+
         // 플레이어 객체 스스로 렌더링 하도록 명령서를 넘겨줌
         player.Render(commandList.Get());
 
@@ -605,6 +811,18 @@ public:
                 bullets[i].Render(commandList.Get());
             }
         }
+
+        // 데미지 텍스트 그리기 (가장 위에)
+        for (int i = 0; i < MAX_DMG_TEXTS; i++)
+            if (!dmgTexts[i].isDead) dmgTexts[i].Render(commandList.Get());
+
+        // EXP 바 그리기 (화면 UI 최상단)
+        expBarBg.Render(commandList.Get());
+        expBarFill.Render(commandList.Get());
+
+        // 레벨 UI 그리기 (가장 마지막에 그려서 맨 위에 덮기)
+        levelBg.Render(commandList.Get());
+        levelText.Render(commandList.Get());
 
         // Resource Barrier 복구
         // 다 그렸으니 다시 유저에게 보여주기 위해 출력용 (PRESENT) 상태로 되돌림

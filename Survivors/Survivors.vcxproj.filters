@@ -82,6 +82,12 @@
     <Image Include="Assets\Textures\map_bg.png">
       <Filter>Assets\Textures</Filter>
     </Image>
+    <Image Include="Assets\Textures\damage_font.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\gem.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Core\Survivors.cpp">
