@@ -89,7 +89,7 @@ public:
     Player player;
 
     // Enemy 객체
-    static const int ENEMY_COUNT = 300;
+    static const int ENEMY_COUNT = 60;
     Enemy enemies[ENEMY_COUNT];
     float spawnTimer = 0.0f;
     bool isBossSpawned[4] = { false, false, false, false }; // 5, 10, 15, 20분 보스 등장 여부
@@ -363,25 +363,25 @@ public:
         bossSkins[2].Initialize(d3dDevice.Get()); bossSkins[2].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Boss3.png", 30);
         bossSkins[3].Initialize(d3dDevice.Get()); bossSkins[3].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Boss4.png", 20);
 
-        // 몬스터 초기화 및 스폰 위치 설정, 300마리의 몬스터는 로드된 마스터 스킨을 공유만 받음
+        // 몬스터 초기화 및 스폰 위치 설정, 100마리의 몬스터는 로드된 마스터 스킨을 공유만 받음
         for (int i = 0; i < ENEMY_COUNT; i++)
         {
             // 각 몬스터가 자기 위치를 기억할 빈 공간(상수 버퍼)은 각자 만들어야 함
             enemies[i].Initialize(d3dDevice.Get());
 
-            // 일반 몬스터 구역 (0 ~ 295번) - 50마리씩 할당
-            if (i < 50) { enemies[i].ShareTextureFrom(enemySkins[0]); enemies[i].enemyType = 0; }
-            else if (i < 100) { enemies[i].ShareTextureFrom(enemySkins[1]); enemies[i].enemyType = 0; }
-            else if (i < 150) { enemies[i].ShareTextureFrom(enemySkins[2]); enemies[i].enemyType = 1; }
-            else if (i < 200) { enemies[i].ShareTextureFrom(enemySkins[3]); enemies[i].enemyType = 1; }
-            else if (i < 250) { enemies[i].ShareTextureFrom(enemySkins[4]); enemies[i].enemyType = 2; }
-            else if (i < 296) { enemies[i].ShareTextureFrom(enemySkins[5]); enemies[i].enemyType = 2; }
+            // 일반 몬스터 구역 (0 ~ 55번) - 10마리씩 할당
+            if (i < 10) { enemies[i].ShareTextureFrom(enemySkins[0]); enemies[i].enemyType = 0; }
+            else if (i < 20) { enemies[i].ShareTextureFrom(enemySkins[1]); enemies[i].enemyType = 0; }
+            else if (i < 30) { enemies[i].ShareTextureFrom(enemySkins[2]); enemies[i].enemyType = 1; }
+            else if (i < 40) { enemies[i].ShareTextureFrom(enemySkins[3]); enemies[i].enemyType = 1; }
+            else if (i < 50) { enemies[i].ShareTextureFrom(enemySkins[4]); enemies[i].enemyType = 2; }
+            else if (i < 56) { enemies[i].ShareTextureFrom(enemySkins[5]); enemies[i].enemyType = 2; }
 
-            // 보스 구역 (296 ~ 299번)
-            else if (i == 296) { enemies[i].ShareTextureFrom(bossSkins[0]); enemies[i].enemyType = 3; }
-            else if (i == 297) { enemies[i].ShareTextureFrom(bossSkins[1]); enemies[i].enemyType = 4; }
-            else if (i == 298) { enemies[i].ShareTextureFrom(bossSkins[2]); enemies[i].enemyType = 5; }
-            else if (i == 299) { enemies[i].ShareTextureFrom(bossSkins[3]); enemies[i].enemyType = 6; }
+            // 보스 구역 (56 ~ 59번)
+            else if (i == 56) { enemies[i].ShareTextureFrom(bossSkins[0]); enemies[i].enemyType = 3; }
+            else if (i == 57) { enemies[i].ShareTextureFrom(bossSkins[1]); enemies[i].enemyType = 4; }
+            else if (i == 58) { enemies[i].ShareTextureFrom(bossSkins[2]); enemies[i].enemyType = 5; }
+            else if (i == 59) { enemies[i].ShareTextureFrom(bossSkins[3]); enemies[i].enemyType = 6; }
 
             enemies[i].isDead = true; // 태어날 땐 무조건 죽은 상태로 창고 대기
         }
@@ -533,8 +533,8 @@ public:
             }       
 
             // 충돌 범위 반지름 세팅
-            float playerRadius = 0.15f;
-            float enemyRadius = 0.04f;
+            float playerRadius = 0.08f;
+            float enemyRadius = 0.08f;
 
             // Player vs Enemy 충돌 검사 (속도 저하 로직)
 
