@@ -164,6 +164,15 @@ public:
 		tintColor = { r, g, b, a };
 	}
 
+	// 메모리 절약을 위한 텍스처 공유 함수
+	void ShareTextureFrom(const GameObject& other)
+	{
+		// 무겁게 LoadTexture를 다시 하지 않고 이미 로드된 텍스처와 목차(srvHeap)의 주소만 똑같이 가리킴
+		this->texture = other.texture;
+		this->srvHeap = other.srvHeap;
+		this->maxFrames = other.maxFrames;
+	}
+
 	// 매 프레임 자신의 위치를 행렬로 변환해 GPU로 전송
 	virtual void Update(float dt)
 	{
@@ -288,6 +297,59 @@ public:
 	float maxHp = 30.0f;
 	float hp = 30.0f;
 	bool isDead = false;	// HP가 0이 되면 true로 바뀜
+
+	// 내 텍스처가 뭔지 기억하는 타입 변수 (0 : 노멀, 1 : 스피드, 2 : 탱커, 3 ~ 5 : 중간 보스, 6 : 최종 보스)
+	int enemyType = 0;
+
+	// 외부에서 타입을 강제로 주입받디 않고 내 타입에 맞게 스스로 세팅
+	void InitStats()
+	{
+		// 창고에서 꺼내면 부활
+		isDead = false;
+
+		if (enemyType == 0)	// 기본 적
+		{
+			maxHp = 30.0f; hp = 30.0f; speed = 0.25f;
+			SetScale(0.45f, 0.6f);
+			SetTintColor(1.0f, 1.0f, 1.0f);
+		}
+		else if (enemyType == 1) // 스피드 형 적
+		{
+			maxHp = 15.0f; hp = 15.0f; speed = 0.6f;
+			SetScale(0.45f, 0.6f);
+			SetTintColor(1.0f, 1.0f, 1.0f);
+		}
+		else if (enemyType == 2) // 탱커 형 괴물
+		{
+			maxHp = 150.0f; hp = 150.0f; speed = 0.15f;
+			SetScale(0.45f, 0.6f);
+			SetTintColor(1.0f, 1.0f, 1.0f);
+		}
+		else if (enemyType == 3) // 5분 보스 (Boss1.png)
+		{
+			maxHp = 1000.0f; hp = 1000.0f; speed = 0.2f;
+			SetScale(0.9f, 1.2f);
+			SetTintColor(1.0f, 0.8f, 0.2f); // 황금색
+		}
+		else if (enemyType == 4) // 10분 보스 (Boss2.png)
+		{
+			maxHp = 2500.0f; hp = 2500.0f; speed = 0.22f;
+			SetScale(0.9f, 1.2f);
+			SetTintColor(1.0f, 0.8f, 0.2f);
+		}
+		else if (enemyType == 5) // 15분 보스 (Boss3.png)
+		{
+			maxHp = 5000.0f; hp = 5000.0f; speed = 0.25f;
+			SetScale(0.9f, 1.2f);
+			SetTintColor(1.0f, 0.8f, 0.2f);
+		}
+		else if (enemyType == 6) // 대망의 19분 최종 보스 (Boss4.png)
+		{
+			maxHp = 15000.0f; hp = 15000.0f; speed = 0.3f;
+			SetScale(1.5f, 1.8f);
+			SetTintColor(1.0f, 0.2f, 0.2f); // 공포스러운 붉은색 필터
+		}
+	}
 
 	// Enemy 업데이트 : 매 프레임 플레이어의 위치 (targetPos)를 받아서 그쪽으로 이동함
 	void Update(float dt, XMFLOAT3 targetPos)

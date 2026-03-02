@@ -138,9 +138,18 @@
     <ResourceCompile Include="Survivors.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\Textures\Boss1.png" />
+    <Image Include="Assets\Textures\Boss2.png" />
+    <Image Include="Assets\Textures\Boss3.png" />
+    <Image Include="Assets\Textures\Boss4.png" />
     <Image Include="Assets\Textures\Clear.png" />
     <Image Include="Assets\Textures\damage_font.png" />
-    <Image Include="Assets\Textures\enemy_sheet.png" />
+    <Image Include="Assets\Textures\Enemy1.png" />
+    <Image Include="Assets\Textures\Enemy2.png" />
+    <Image Include="Assets\Textures\Enemy3.png" />
+    <Image Include="Assets\Textures\Enemy4.png" />
+    <Image Include="Assets\Textures\Enemy5.png" />
+    <Image Include="Assets\Textures\Enemy6.png" />
     <Image Include="Assets\Textures\GameOver.png" />
     <Image Include="Assets\Textures\gem.png" />
     <Image Include="Assets\Textures\map_bg.png" />

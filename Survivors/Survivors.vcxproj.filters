@@ -76,9 +76,6 @@
     <Image Include="Assets\Textures\player_sheet.png">
       <Filter>Assets\Textures</Filter>
     </Image>
-    <Image Include="Assets\Textures\enemy_sheet.png">
-      <Filter>Assets\Textures</Filter>
-    </Image>
     <Image Include="Assets\Textures\map_bg.png">
       <Filter>Assets\Textures</Filter>
     </Image>
@@ -95,6 +92,36 @@
       <Filter>Assets\Textures</Filter>
     </Image>
     <Image Include="Assets\Textures\Timer_font.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Boss1.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Boss2.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Boss3.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Boss4.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Enemy1.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Enemy2.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Enemy3.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Enemy4.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Enemy5.png">
+      <Filter>Assets\Textures</Filter>
+    </Image>
+    <Image Include="Assets\Textures\Enemy6.png">
       <Filter>Assets\Textures</Filter>
     </Image>
   </ItemGroup>

@@ -88,9 +88,15 @@ public:
     // 플레이어 객체
     Player player;
 
-    // 10마리 Enemy
-    static const int ENEMY_COUNT = 10;
+    // Enemy 객체
+    static const int ENEMY_COUNT = 300;
     Enemy enemies[ENEMY_COUNT];
+    float spawnTimer = 0.0f;
+    bool isBossSpawned[4] = { false, false, false, false }; // 5, 10, 15, 20분 보스 등장 여부
+
+    // 중복 로딩 방지용 마스터 스킨들
+    GameObject enemySkins[6];
+    GameObject bossSkins[4];
 
     // 배경 맵 객체 (순수 GameObject 사용)
     GameObject background;
@@ -344,17 +350,40 @@ public:
         player.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/player_sheet.png", 30);
         player.SetScale(0.45f, 0.45f);
 
-        // 몬스터 10마리 초기화 및 스폰 위치 설정
+        // 마스터 텍스처 딱 1번씩만 메모리에 올리기
+        enemySkins[0].Initialize(d3dDevice.Get()); enemySkins[0].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Enemy1.png", 20);
+        enemySkins[1].Initialize(d3dDevice.Get()); enemySkins[1].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Enemy2.png", 20);
+        enemySkins[2].Initialize(d3dDevice.Get()); enemySkins[2].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Enemy3.png", 20);
+        enemySkins[3].Initialize(d3dDevice.Get()); enemySkins[3].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Enemy4.png", 30);
+        enemySkins[4].Initialize(d3dDevice.Get()); enemySkins[4].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Enemy5.png", 30);
+        enemySkins[5].Initialize(d3dDevice.Get()); enemySkins[5].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Enemy6.png", 20);
+
+        bossSkins[0].Initialize(d3dDevice.Get()); bossSkins[0].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Boss1.png", 20);
+        bossSkins[1].Initialize(d3dDevice.Get()); bossSkins[1].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Boss2.png", 20);
+        bossSkins[2].Initialize(d3dDevice.Get()); bossSkins[2].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Boss3.png", 30);
+        bossSkins[3].Initialize(d3dDevice.Get()); bossSkins[3].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Boss4.png", 20);
+
+        // 몬스터 초기화 및 스폰 위치 설정, 300마리의 몬스터는 로드된 마스터 스킨을 공유만 받음
         for (int i = 0; i < ENEMY_COUNT; i++)
         {
+            // 각 몬스터가 자기 위치를 기억할 빈 공간(상수 버퍼)은 각자 만들어야 함
             enemies[i].Initialize(d3dDevice.Get());
-            enemies[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/enemy_sheet.png", 18);
-            enemies[i].SetScale(0.1f, 0.15f);
 
-            // 화면 밖이나 구석에서 스폰되도록 대충 위치를 분산
-            float spawnX = (float)(i % 5) * 0.5f - 1.0f; // -1.0 ~ 1.0 사이 분산
-            float spawnY = (float)(i / 5) * 0.5f + 0.5f;
-            enemies[i].SetPosition(spawnX, spawnY);
+            // 일반 몬스터 구역 (0 ~ 295번) - 50마리씩 할당
+            if (i < 50) { enemies[i].ShareTextureFrom(enemySkins[0]); enemies[i].enemyType = 0; }
+            else if (i < 100) { enemies[i].ShareTextureFrom(enemySkins[1]); enemies[i].enemyType = 0; }
+            else if (i < 150) { enemies[i].ShareTextureFrom(enemySkins[2]); enemies[i].enemyType = 1; }
+            else if (i < 200) { enemies[i].ShareTextureFrom(enemySkins[3]); enemies[i].enemyType = 1; }
+            else if (i < 250) { enemies[i].ShareTextureFrom(enemySkins[4]); enemies[i].enemyType = 2; }
+            else if (i < 296) { enemies[i].ShareTextureFrom(enemySkins[5]); enemies[i].enemyType = 2; }
+
+            // 보스 구역 (296 ~ 299번)
+            else if (i == 296) { enemies[i].ShareTextureFrom(bossSkins[0]); enemies[i].enemyType = 3; }
+            else if (i == 297) { enemies[i].ShareTextureFrom(bossSkins[1]); enemies[i].enemyType = 4; }
+            else if (i == 298) { enemies[i].ShareTextureFrom(bossSkins[2]); enemies[i].enemyType = 5; }
+            else if (i == 299) { enemies[i].ShareTextureFrom(bossSkins[3]); enemies[i].enemyType = 6; }
+
+            enemies[i].isDead = true; // 태어날 땐 무조건 죽은 상태로 창고 대기
         }
 
         // 경험치 바 (EXP Bar) 초기화
@@ -496,10 +525,6 @@ public:
         {
             // 타이머 증가 및 클리어 체크
             gameTimer += dt;
-            if (gameTimer >= maxGameTime)
-            {
-                currentState = GameState::CLEAR;
-            }
 
             // 사망 체크
             if (player.hp <= 0.0f)
@@ -517,6 +542,92 @@ public:
             player.currentSpeed = player.basespeed;
             XMFLOAT3 playerPos = player.GetPosition();
             bool isPlayerHit = false;
+
+            // 20분 (1200초) 웨이브 & 보스 매니저
+            spawnTimer += dt;
+            int currentMinute = (int)(gameTimer / 60.0f);
+            float spawnInterval = max(0.3f, 2.5f - (currentMinute * 0.15f));
+
+            auto SpawnEnemy = [&](int targetType, float x, float y) 
+            {
+                int startIndex = rand() % ENEMY_COUNT;
+                for (int i = 0; i < ENEMY_COUNT; i++)
+                {
+                    int idx = (startIndex + i) % ENEMY_COUNT;
+                    if (enemies[idx].isDead && enemies[idx].enemyType == targetType)
+                    {
+                        enemies[idx].InitStats();
+                        enemies[idx].SetPosition(x, y);
+                        break;
+                    }
+                }
+            };
+
+            // 보스 스폰 로직 (5, 10, 15분엔 중간 보스 / 19분에 최종 보스)
+            if (currentMinute == 5 && !isBossSpawned[0])
+            {
+                SpawnEnemy(3, playerPos.x + 2.5f, playerPos.y);
+                isBossSpawned[0] = true;
+            }
+            else if (currentMinute == 10 && !isBossSpawned[1])
+            {
+                SpawnEnemy(4, playerPos.x - 2.5f, playerPos.y);
+                isBossSpawned[1] = true;
+            }
+            else if (currentMinute == 15 && !isBossSpawned[2])
+            {
+                SpawnEnemy(5, playerPos.x, playerPos.y + 2.5f);
+                isBossSpawned[2] = true;
+            }
+            else if (currentMinute == 19 && !isBossSpawned[3])
+            {
+                SpawnEnemy(6, playerPos.x, playerPos.y - 2.5f);
+                isBossSpawned[3] = true;
+            }
+
+            // 20분 스케일 일반 웨이브 스폰 로직
+            if (spawnTimer >= spawnInterval)
+            {
+                spawnTimer = 0.0f;
+                XMFLOAT3 pPos = player.GetPosition();
+
+                if (currentMinute < 5)
+                {
+                    for (int k = 0; k < 6; k++)
+                    {
+                        float angle = k * (XM_2PI / 6.0f);
+                        SpawnEnemy(0, playerPos.x + cos(angle) * 1.5f, playerPos.y + sin(angle) * 1.5f);
+                    }
+                }
+                else if (currentMinute < 10)
+                {
+                    for (int k = 0; k < 6; k++)
+                    {
+                        float offsetX = (playerPos.x - 2.0f) + (k * 0.8f);
+                        SpawnEnemy(1, offsetX, playerPos.y + 1.5f);
+                        SpawnEnemy(1, offsetX, playerPos.y - 1.5f);
+                    }
+                }
+                else if (currentMinute < 15)
+                {
+                    SpawnEnemy(2, pPos.x + 1.5f, pPos.y); SpawnEnemy(2, pPos.x - 1.5f, pPos.y);
+                    SpawnEnemy(2, pPos.x, pPos.y + 1.5f); SpawnEnemy(2, pPos.x, pPos.y - 1.5f);
+
+                    for (int k = 0; k < 5; k++) 
+                    {
+                        float angle = k * (XM_2PI / 5.0f) + 0.5f;
+                        SpawnEnemy(1, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
+                    }
+                }
+                else
+                {
+                    for (int k = 0; k < 10; k++) 
+                    {
+                        float angle = k * (XM_2PI / 10.0f);
+                        SpawnEnemy(k % 3, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
+                    }
+                }
+            }
 
             for (int i = 0; i < ENEMY_COUNT; i++)
             {
@@ -670,6 +781,12 @@ public:
                             }
                         }
 
+                        // 타입 6 (최종 보스) 적이 죽었다면
+                        if (enemies[targetIdx].enemyType == 6)
+                        {
+                            currentState = GameState::CLEAR;
+                        }
+
                         // 적이 죽었다면 경험치 젬 드롭
                         if (enemies[targetIdx].hp <= 0.0f)
                         {
@@ -726,7 +843,7 @@ public:
                     float dist = sqrt((dx * dx) + (dy * dy));
 
                     // 두 적이 유지해야하는 최소 거리 (반지름 2배)
-                    float minDistance = enemyRadius * 2.0f;
+                    float minDistance = 0.2f;
 
                     // 0.0001f 체크는 둘이 완벽하게 겹쳐서 거리가 0이 될 때 생기는 나눗셈 오류 방지
                     if (dist < minDistance && dist > 0.0001f)
@@ -738,9 +855,10 @@ public:
                         float nx = dx / dist;
                         float ny = dy / dist;
 
-                        // 각각 겹친 깊이의 절반(0.5) 만큼 반대 방향으로 밀어냄
-                        float pushX = nx * (overlap * 0.5f);
-                        float pushY = ny * (overlap * 0.5f);
+                        // dt를 곱해서 프레임 속도에 맞춰 0.5배 속도로 아주 부드럽게 밀어냄
+                        float pushStrength = 0.5f * dt;
+                        float pushX = nx * (overlap * pushStrength);
+                        float pushY = ny * (overlap * pushStrength);
 
                         enemies[i].SetPosition(pos1.x - pushX, pos1.y - pushY);
                         enemies[j].SetPosition(pos2.x + pushX, pos2.y + pushY);
