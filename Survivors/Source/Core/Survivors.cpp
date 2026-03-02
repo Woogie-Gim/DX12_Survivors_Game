@@ -24,6 +24,24 @@ struct Vertex
 class D3D12Manager
 {
 public:
+    // 게임 상태 (Game State) 열거형
+    enum class GameState
+    {
+        PLAY,           // 정상 플레이 중
+        PAUSE,          // ESC 일시 정지
+        GAME_OVER,      // HP 0 (사망)
+        CLEAR,          // 생존 성공
+    };
+
+    // 게임 매니저용 변수들
+    GameState currentState = GameState::PLAY;      // 기본 상태는 PLAY
+    float gameTimer = 0.0f;                        // 현재 흘러간 시간
+    float maxGameTime = 60.0f;                     // 목표 생존 시간 (테스트 용 60초)
+    bool isEscPressed = false;                     // ESC 키 꾹 누름 (중복) 방지용 플래그
+
+    GameObject gameOverUI;
+    GameObject clearUI;
+
     // ComPtr은 DX12 객체들의 메모리 누수를 막아주는 자동 관리 포인터
     ComPtr<IDXGIFactory4>       dxgiFactory;
     ComPtr<ID3D12Device>        d3dDevice;
@@ -100,6 +118,14 @@ public:
     // 레벨 UI 배경과 레벨 텍스트 선언
     GameObject levelBg;
     GameObject levelText;
+
+    // 타이머 폰트 배열 (MM:SS 4자리)
+    GameObject timerTexts[4];
+    
+    // 콜론의 검은색 배경 역할을 할 점 2개 선언
+    GameObject timerColonBg[2];
+    // 콜론 (:) 역할을 할 점 2개 선언
+    GameObject timerColon[2];
 
     // DX12 초기화를 진행하는 함수
     void Initialize(HWND hWnd, int width, int height)
@@ -391,6 +417,47 @@ public:
             dmgTexts[i].isDead = true;
         }
 
+        // Game Over 및 Clear UI 초기화
+        gameOverUI.Initialize(d3dDevice.Get());
+        gameOverUI.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/GameOver.png", 50);
+        gameOverUI.SetScale(0.8f, 1.2f);
+        gameOverUI.SetObjectType(0);
+
+        clearUI.Initialize(d3dDevice.Get());
+        clearUI.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Clear.png", 80);
+        clearUI.SetScale(0.8f, 1.2f);
+        clearUI.SetObjectType(0);
+
+        // 타이머 텍스트 초기화
+        for (int i = 0; i < 4; i++)
+        {
+            timerTexts[i].Initialize(d3dDevice.Get());
+            // 0~9가 10칸으로 나열된 Timer_font.png 사용
+            timerTexts[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Timer_font.png", 10);
+            timerTexts[i].SetScale(0.04f, 0.06f); // 데미지 폰트보다 살짝 작거나 비슷하게
+            timerTexts[i].SetTintColor(1.0f, 1.0f, 1.0f); // 하얀색
+            timerTexts[i].SetObjectType(0);
+            timerTexts[i].SetFrameDuration(9999.0f); // 애니메이션 멈춤
+        }
+
+        // 콜론(:) 초기화
+        for (int i = 0; i < 2; i++)
+        {
+            // 검은색 배경 점 (테두리 역할)
+            timerColonBg[i].Initialize(d3dDevice.Get());
+            timerColonBg[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+            timerColonBg[i].SetScale(0.015f, 0.02f); // 흰색 점보다 약간 크게
+            timerColonBg[i].SetTintColor(0.0f, 0.0f, 0.0f); // 완벽한 검은색
+            timerColonBg[i].SetObjectType(1); // 동그라미 셰이더 재활용
+
+            // 흰색 점
+            timerColon[i].Initialize(d3dDevice.Get());
+            timerColon[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+            timerColon[i].SetScale(0.01f, 0.015f); // 원래 크기
+            timerColon[i].SetTintColor(1.0f, 1.0f, 1.0f); // 하얀색
+            timerColon[i].SetObjectType(1);
+        }
+
         // 모든 텍스처 복사 명령 기록이 끝났으니 Close() 하고 한 방에 실행
         commandList->Close();
         ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
@@ -409,326 +476,437 @@ public:
         timeMgr.Update();
         float dt = timeMgr.GetDeltaTime();
 
-        // 충돌 범위 반지름 세팅
-        float playerRadius = 0.15f;
-        float enemyRadius = 0.04f;
-
-        // Player vs Enemy 충돌 검사 (속도 저하 로직)
-
-        // 매 프레임 플레이어의 속도를 원래 속도로 원상복구 시킴
-        player.currentSpeed = player.basespeed;
-        XMFLOAT3 playerPos = player.GetPosition();
-        bool isPlayerHit = false;
-
-        for (int i = 0; i < ENEMY_COUNT; i++)
+        // ESC 키 일시정지 (PAUSE) 토글 로직
+        if (inputMgr.IsKeyPressed(VK_ESCAPE))
         {
-            if (enemies[i].isDead) continue; // 죽은 적과는 부딪히지 않음
-
-            XMFLOAT3 enemyPos = enemies[i].GetPosition();
-            // 피타고라스의 정리
-            float dx = playerPos.x - enemyPos.x;
-            float dy = playerPos.y - enemyPos.y;
-            float dist = sqrt((dx * dx) + (dy * dy));
-
-            // 내 반지름 + 적 반지름 보다 거리가 짧으면? 충돌 (겹침) 발생
-            if (dist < playerRadius + enemyRadius)
+            if (!isEscPressed)  // 키를 누르는 그 순간 딱 한 번만 작동
             {
-                isPlayerHit = true;
-                break;  // 하나라도 부딪히면 느려지므로 더 검사할 필요 없음
+                if (currentState == GameState::PLAY) currentState = GameState::PAUSE;
+                else if (currentState == GameState::PAUSE) currentState = GameState::PLAY;
+                isEscPressed = true;
             }
-        }
-
-        // 부딪혔다면 속도를 40%로 확 줄임
-        if (isPlayerHit)
-        {
-            player.currentSpeed = player.basespeed * 0.6f;
-            // 피격 시 빨간색으로 변경
-            player.SetTintColor(1.0f, 0.0f, 0.0f);
-
-            // 피격 시 dt(시간)을 곱해서 초당 데미지(DPS)를 줌
-            player.hp -= 5.0f * dt;
-
-            // 체력이 음수로 안 내려가게 방지
-            if (player.hp < 0.0f) player.hp = 0.0f;
         }
         else
         {
-            // 피격 받지 않을 시 원래 색상으로 변경
-            player.SetTintColor(1.0f, 1.0f, 1.0f);
+            isEscPressed = false;   // 키를 떼면 다시 누를 수 있게 리셋
         }
 
-        // 플레이어 객체 스스로 업데이트하도록 호출 (키보드 이동 반영)
-        player.Update(dt, inputMgr);
-
-        // 플레이어 투명 벽 (경계선) 로직
-        XMFLOAT3 pPos = player.GetPosition();
-
-        // 카메라 마지노선(camLimit)보다 조금 크게 설정하여, 카메라가 멈춘 상태에서 플레이어가 가장자리로 이동하도록 연출
-        float mapLimit = 4.5f;
-
-        if (pPos.x > mapLimit)  pPos.x = mapLimit;   // 오른쪽 벽
-        if (pPos.x < -mapLimit) pPos.x = -mapLimit;  // 왼쪽 벽
-        if (pPos.y > mapLimit)  pPos.y = mapLimit;   // 위쪽 벽
-        if (pPos.y < -mapLimit) pPos.y = -mapLimit;  // 아래쪽 벽
-
-        // 벽에 막힌 최종 위치를 플레이어에게 다시 덮어씌움
-        player.SetPosition(pPos.x, pPos.y);
-
-        // 카메라 좌표 설정 (카메라는 항상 최신 플레이어 위치를 따라가되 가두기 적용)
-        XMFLOAT2 camPos = { player.GetPosition().x, player.GetPosition().y };
-
-        // 🚨 카메라가 파란색 허공을 비추지 않도록 제한하는 마지노선!
-        float camLimit = 4.0f;
-
-        if (camPos.x > camLimit)  camPos.x = camLimit;   // 오른쪽 카메라 정지
-        if (camPos.x < -camLimit) camPos.x = -camLimit;  // 왼쪽 카메라 정지
-        if (camPos.y > camLimit)  camPos.y = camLimit;   // 위쪽 카메라 정지
-        if (camPos.y < -camLimit) camPos.y = -camLimit;  // 아래쪽 카메라 정지
-
-        // 모든 객체에 "제한이 걸린" 카메라 좌표 전달 (플레이어 본인 포함)
-        player.SetCameraPos(camPos.x, camPos.y);
-
-        // 새 카메라 위치로 행렬을 다시 계산하기 위한 강제 업데이트 (dt는 0.0f 전달)
-        player.GameObject::Update(0.0f);
-
-        // 무한 맵 (배경) 스크롤 로직 ...
-        // 배경은 세상의 중심(0,0)에 가만히 있고 카메라만 움직이게
-        background.SetCameraPos(camPos.x, camPos.y);
-        background.Update(dt);
-
-        // 자동 유도 미사일 발사 로직
-        shootTimer += dt;
-        if (shootTimer >= shootInterval)
+        // 오직 PLAY 상태일 때만 게임 세계의 시간이 흐름
+        if (currentState == GameState::PLAY)
         {
-            shootTimer = 0.0f; // 타이머 초기화
+            // 타이머 증가 및 클리어 체크
+            gameTimer += dt;
+            if (gameTimer >= maxGameTime)
+            {
+                currentState = GameState::CLEAR;
+            }
 
-            // 배열에서 isDead된 미사일을 하나 찾아서 발사
+            // 사망 체크
+            if (player.hp <= 0.0f)
+            {
+                currentState = GameState::GAME_OVER;
+            }       
+
+            // 충돌 범위 반지름 세팅
+            float playerRadius = 0.15f;
+            float enemyRadius = 0.04f;
+
+            // Player vs Enemy 충돌 검사 (속도 저하 로직)
+
+            // 매 프레임 플레이어의 속도를 원래 속도로 원상복구 시킴
+            player.currentSpeed = player.basespeed;
+            XMFLOAT3 playerPos = player.GetPosition();
+            bool isPlayerHit = false;
+
+            for (int i = 0; i < ENEMY_COUNT; i++)
+            {
+                if (enemies[i].isDead) continue; // 죽은 적과는 부딪히지 않음
+
+                XMFLOAT3 enemyPos = enemies[i].GetPosition();
+                // 피타고라스의 정리
+                float dx = playerPos.x - enemyPos.x;
+                float dy = playerPos.y - enemyPos.y;
+                float dist = sqrt((dx * dx) + (dy * dy));
+
+                // 내 반지름 + 적 반지름 보다 거리가 짧으면? 충돌 (겹침) 발생
+                if (dist < playerRadius + enemyRadius)
+                {
+                    isPlayerHit = true;
+                    break;  // 하나라도 부딪히면 느려지므로 더 검사할 필요 없음
+                }
+            }
+
+            // 부딪혔다면 속도를 40%로 확 줄임
+            if (isPlayerHit)
+            {
+                player.currentSpeed = player.basespeed * 0.6f;
+                // 피격 시 빨간색으로 변경
+                player.SetTintColor(1.0f, 0.0f, 0.0f);
+
+                // 피격 시 dt(시간)을 곱해서 초당 데미지(DPS)를 줌
+                player.hp -= 5.0f * dt;
+
+                // 체력이 음수로 안 내려가게 방지
+                if (player.hp < 0.0f) player.hp = 0.0f;
+            }
+            else
+            {
+                // 피격 받지 않을 시 원래 색상으로 변경
+                player.SetTintColor(1.0f, 1.0f, 1.0f);
+            }
+
+            // 플레이어 객체 스스로 업데이트하도록 호출 (키보드 이동 반영)
+            player.Update(dt, inputMgr);
+
+            // 플레이어 투명 벽 (경계선) 로직
+            XMFLOAT3 pPos = player.GetPosition();
+
+            // 카메라 마지노선(camLimit)보다 조금 크게 설정하여, 카메라가 멈춘 상태에서 플레이어가 가장자리로 이동하도록 연출
+            float mapLimit = 4.5f;
+
+            if (pPos.x > mapLimit)  pPos.x = mapLimit;   // 오른쪽 벽
+            if (pPos.x < -mapLimit) pPos.x = -mapLimit;  // 왼쪽 벽
+            if (pPos.y > mapLimit)  pPos.y = mapLimit;   // 위쪽 벽
+            if (pPos.y < -mapLimit) pPos.y = -mapLimit;  // 아래쪽 벽
+
+            // 벽에 막힌 최종 위치를 플레이어에게 다시 덮어씌움
+            player.SetPosition(pPos.x, pPos.y);
+
+            // 카메라 좌표 설정 (카메라는 항상 최신 플레이어 위치를 따라가되 가두기 적용)
+            XMFLOAT2 camPos = { player.GetPosition().x, player.GetPosition().y };
+
+            // 🚨 카메라가 파란색 허공을 비추지 않도록 제한하는 마지노선!
+            float camLimit = 4.0f;
+
+            if (camPos.x > camLimit)  camPos.x = camLimit;   // 오른쪽 카메라 정지
+            if (camPos.x < -camLimit) camPos.x = -camLimit;  // 왼쪽 카메라 정지
+            if (camPos.y > camLimit)  camPos.y = camLimit;   // 위쪽 카메라 정지
+            if (camPos.y < -camLimit) camPos.y = -camLimit;  // 아래쪽 카메라 정지
+
+            // 모든 객체에 "제한이 걸린" 카메라 좌표 전달 (플레이어 본인 포함)
+            player.SetCameraPos(camPos.x, camPos.y);
+
+            // 새 카메라 위치로 행렬을 다시 계산하기 위한 강제 업데이트 (dt는 0.0f 전달)
+            player.GameObject::Update(0.0f);
+
+            // 무한 맵 (배경) 스크롤 로직 ...
+            // 배경은 세상의 중심(0,0)에 가만히 있고 카메라만 움직이게
+            background.SetCameraPos(camPos.x, camPos.y);
+            background.Update(dt);
+
+            // 자동 유도 미사일 발사 로직
+            shootTimer += dt;
+            if (shootTimer >= shootInterval)
+            {
+                shootTimer = 0.0f; // 타이머 초기화
+
+                // 배열에서 isDead된 미사일을 하나 찾아서 발사
+                for (int i = 0; i < MAX_BULLETS; i++)
+                {
+                    if (bullets[i].isDead)
+                    {
+                        bullets[i].isDead = false;
+                        bullets[i].SetPosition(player.GetPosition().x, player.GetPosition().y); // 플레이어 위치에서 스폰
+                        break;
+                    }
+                }
+            }
+
+            // 살아 있는 미사일들 업데이트, 젬과 데미지 생성
             for (int i = 0; i < MAX_BULLETS; i++)
             {
-                if (bullets[i].isDead)
+                if (bullets[i].isDead) continue;
+                bullets[i].SetCameraPos(camPos.x, camPos.y); // 미사일에게도 카메라 위치 전달
+
+                // 미사일 로직을 밖으로 빼서 메인루프에서 적의 죽음을 캐치
+                float minDist = 9999.0f;
+                int targetIdx = -1;
+
+                // 타겟 찾기
+                for (int j = 0; j < ENEMY_COUNT; j++)
                 {
-                    bullets[i].isDead = false;
-                    bullets[i].SetPosition(player.GetPosition().x, player.GetPosition().y); // 플레이어 위치에서 스폰
-                    break;
-                }
-            }
-        }
-
-        // 살아 있는 미사일들 업데이트, 젬과 데미지 생성
-        for (int i = 0; i < MAX_BULLETS; i++)
-        {
-            if (bullets[i].isDead) continue;
-            bullets[i].SetCameraPos(camPos.x, camPos.y); // 미사일에게도 카메라 위치 전달
-
-            // 미사일 로직을 밖으로 빼서 메인루프에서 적의 죽음을 캐치
-            float minDist = 9999.0f;
-            int targetIdx = -1;
-
-            // 타겟 찾기
-            for (int j = 0; j < ENEMY_COUNT; j++)
-            {
-                if (enemies[j].isDead) continue;
-                float dx = enemies[j].GetPosition().x - bullets[i].GetPosition().x;
-                float dy = enemies[j].GetPosition().y - bullets[i].GetPosition().y;
-                float dist = sqrt((dx * dx) + (dy * dy));
-                if (dist < minDist) { minDist = dist; targetIdx = j; }
-            }
-
-            // 날아가기 및 명중 처리
-            if (targetIdx != -1)
-            {
-                float dx = enemies[targetIdx].GetPosition().x - bullets[i].GetPosition().x;
-                float dy = enemies[targetIdx].GetPosition().y - bullets[i].GetPosition().y;
-                float dist = sqrt((dx * dx) + (dy * dy));
-
-                if (dist > 0.0f)
-                {
-                    bullets[i].SetPosition(bullets[i].GetPosition().x + (dx / dist) * bullets[i].speed * dt,
-                        bullets[i].GetPosition().y + (dy / dist) * bullets[i].speed * dt);
+                    if (enemies[j].isDead) continue;
+                    float dx = enemies[j].GetPosition().x - bullets[i].GetPosition().x;
+                    float dy = enemies[j].GetPosition().y - bullets[i].GetPosition().y;
+                    float dist = sqrt((dx * dx) + (dy * dy));
+                    if (dist < minDist) { minDist = dist; targetIdx = j; }
                 }
 
-                // 적중
-                float hitRadius = 0.08f;
-                if (dist < hitRadius)
+                // 날아가기 및 명중 처리
+                if (targetIdx != -1)
                 {
-                    enemies[targetIdx].hp -= bullets[i].damage;
-                    bullets[i].isDead = true;
+                    float dx = enemies[targetIdx].GetPosition().x - bullets[i].GetPosition().x;
+                    float dy = enemies[targetIdx].GetPosition().y - bullets[i].GetPosition().y;
+                    float dist = sqrt((dx * dx) + (dy * dy));
 
-                    // 데미지 텍스트 팝업 띄우기
-                    for (int k = 0; k < MAX_DMG_TEXTS; k++)
+                    if (dist > 0.0f)
                     {
-                        if (dmgTexts[k].isDead)
-                        {
-                            dmgTexts[k].isDead = false;
-                            dmgTexts[k].lifeTime = 0.0f;
-                            dmgTexts[k].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y + 0.1f);
-
-                            // 15 데미지면 일단 '5' (프레임 번호 5)를 띄우게 만듦
-                            // 한 자릿수만 띄울 수 있으므로 임시로 1의 자리를 구해서 띄움
-                            int dmgValue = (int)bullets[i].damage; // 15
-                            dmgTexts[k].SetFrame(dmgValue % 10);   // 15 % 10 = 5번 프레임(숫자 5)
-
-                            break;
-                        }
+                        bullets[i].SetPosition(bullets[i].GetPosition().x + (dx / dist) * bullets[i].speed * dt,
+                            bullets[i].GetPosition().y + (dy / dist) * bullets[i].speed * dt);
                     }
 
-                    // 적이 죽었다면 경험치 젬 드롭
-                    if (enemies[targetIdx].hp <= 0.0f)
+                    // 적중
+                    float hitRadius = 0.08f;
+                    if (dist < hitRadius)
                     {
-                        enemies[targetIdx].isDead = true;
+                        enemies[targetIdx].hp -= bullets[i].damage;
+                        bullets[i].isDead = true;
 
-                        for (int g = 0; g < MAX_GEMS; g++)
+                        // 데미지 텍스트 팝업 띄우기
+                        for (int k = 0; k < MAX_DMG_TEXTS; k++)
                         {
-                            if (gems[g].isDead)
+                            if (dmgTexts[k].isDead)
                             {
-                                gems[g].isDead = false;
-                                gems[g].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y);
+                                dmgTexts[k].isDead = false;
+                                dmgTexts[k].lifeTime = 0.0f;
+                                dmgTexts[k].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y + 0.1f);
+
+                                // 15 데미지면 일단 '5' (프레임 번호 5)를 띄우게 만듦
+                                // 한 자릿수만 띄울 수 있으므로 임시로 1의 자리를 구해서 띄움
+                                int dmgValue = (int)bullets[i].damage; // 15
+                                dmgTexts[k].SetFrame(dmgValue % 10);   // 15 % 10 = 5번 프레임(숫자 5)
+
                                 break;
+                            }
+                        }
+
+                        // 적이 죽었다면 경험치 젬 드롭
+                        if (enemies[targetIdx].hp <= 0.0f)
+                        {
+                            enemies[targetIdx].isDead = true;
+
+                            for (int g = 0; g < MAX_GEMS; g++)
+                            {
+                                if (gems[g].isDead)
+                                {
+                                    gems[g].isDead = false;
+                                    gems[g].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y);
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-            }
-            else
-            {
-                bullets[i].SetPosition(bullets[i].GetPosition().x, bullets[i].GetPosition().y + bullets[i].speed * dt);
-            }
-
-            bullets[i].Update(dt);
-        }
-
-        // Enemy 이동 및 Enemy vs Enemy 충돌 검사
-        playerPos = player.GetPosition(); // 갱신된 플레이어 위치 가져오기
-
-        // 모든 Enemy가 플레이어의 위치를 향해 돌격
-        for (int i = 0; i < ENEMY_COUNT; i++)
-        {
-            // 죽은 적은 움직이지 않음
-            if (enemies[i].isDead) continue;
-
-            enemies[i].SetCameraPos(camPos.x, camPos.y); // 적에게도 카메라 위치 전달
-            enemies[i].Update(dt, playerPos);
-        }
-
-        // 적들 끼리 겹치지 않게 서로 밀어내기 (군집 형성의 핵심)
-        for (int i = 0; i < ENEMY_COUNT; i++)
-        {
-            // 죽은 적은 밀어내기 제외
-            if (enemies[i].isDead) continue;
-
-            for (int j = i + 1; j < ENEMY_COUNT; j++)
-            {
-                if (enemies[j].isDead) continue; // j도 죽었는지 체크
-
-                XMFLOAT3 pos1 = enemies[i].GetPosition();
-                XMFLOAT3 pos2 = enemies[j].GetPosition();
-
-                float dx = pos2.x - pos1.x;
-                float dy = pos2.y - pos1.y;
-                float dist = sqrt((dx * dx) + (dy * dy));
-
-                // 두 적이 유지해야하는 최소 거리 (반지름 2배)
-                float minDistance = enemyRadius * 2.0f;
-
-                // 0.0001f 체크는 둘이 완벽하게 겹쳐서 거리가 0이 될 때 생기는 나눗셈 오류 방지
-                if (dist < minDistance && dist > 0.0001f)
+                else
                 {
-                    // 얼마나 겹쳤는지 계산
-                    float overlap = minDistance - dist;
+                    bullets[i].SetPosition(bullets[i].GetPosition().x, bullets[i].GetPosition().y + bullets[i].speed * dt);
+                }
 
-                    // 밀어낼 방향 (단위 벡터) 구하기
-                    float nx = dx / dist;
-                    float ny = dy / dist;
+                bullets[i].Update(dt);
+            }
 
-                    // 각각 겹친 깊이의 절반(0.5) 만큼 반대 방향으로 밀어냄
-                    float pushX = nx * (overlap * 0.5f);
-                    float pushY = ny * (overlap * 0.5f);
+            // Enemy 이동 및 Enemy vs Enemy 충돌 검사
+            playerPos = player.GetPosition(); // 갱신된 플레이어 위치 가져오기
 
-                    enemies[i].SetPosition(pos1.x - pushX, pos1.y - pushY);
-                    enemies[j].SetPosition(pos2.x + pushX, pos2.y + pushY);
+            // 모든 Enemy가 플레이어의 위치를 향해 돌격
+            for (int i = 0; i < ENEMY_COUNT; i++)
+            {
+                // 죽은 적은 움직이지 않음
+                if (enemies[i].isDead) continue;
+
+                enemies[i].SetCameraPos(camPos.x, camPos.y); // 적에게도 카메라 위치 전달
+                enemies[i].Update(dt, playerPos);
+            }
+
+            // 적들 끼리 겹치지 않게 서로 밀어내기 (군집 형성의 핵심)
+            for (int i = 0; i < ENEMY_COUNT; i++)
+            {
+                // 죽은 적은 밀어내기 제외
+                if (enemies[i].isDead) continue;
+
+                for (int j = i + 1; j < ENEMY_COUNT; j++)
+                {
+                    if (enemies[j].isDead) continue; // j도 죽었는지 체크
+
+                    XMFLOAT3 pos1 = enemies[i].GetPosition();
+                    XMFLOAT3 pos2 = enemies[j].GetPosition();
+
+                    float dx = pos2.x - pos1.x;
+                    float dy = pos2.y - pos1.y;
+                    float dist = sqrt((dx * dx) + (dy * dy));
+
+                    // 두 적이 유지해야하는 최소 거리 (반지름 2배)
+                    float minDistance = enemyRadius * 2.0f;
+
+                    // 0.0001f 체크는 둘이 완벽하게 겹쳐서 거리가 0이 될 때 생기는 나눗셈 오류 방지
+                    if (dist < minDistance && dist > 0.0001f)
+                    {
+                        // 얼마나 겹쳤는지 계산
+                        float overlap = minDistance - dist;
+
+                        // 밀어낼 방향 (단위 벡터) 구하기
+                        float nx = dx / dist;
+                        float ny = dy / dist;
+
+                        // 각각 겹친 깊이의 절반(0.5) 만큼 반대 방향으로 밀어냄
+                        float pushX = nx * (overlap * 0.5f);
+                        float pushY = ny * (overlap * 0.5f);
+
+                        enemies[i].SetPosition(pos1.x - pushX, pos1.y - pushY);
+                        enemies[j].SetPosition(pos2.x + pushX, pos2.y + pushY);
+                    }
                 }
             }
+
+            // 젬 (플레이어에게 다가가서 먹히기)
+            for (int i = 0; i < MAX_GEMS; i++)
+            {
+                if (gems[i].isDead) continue;
+                gems[i].SetCameraPos(camPos.x, camPos.y);
+                gems[i].Update(dt, player);
+            }
+
+            // 데미지 텍스트
+            for (int i = 0; i < MAX_DMG_TEXTS; i++)
+            {
+                if (dmgTexts[i].isDead) continue;
+                dmgTexts[i].SetCameraPos(camPos.x, camPos.y);
+                dmgTexts[i].Update(dt);
+            }
+
+            // HP바 크기와 위치 실시간 계산
+            float barWidth = 0.12f;      // 체력바 전체 가로길이
+            float barHeight = 0.02f;    // 체력바 세로 두께
+            float hpY = player.GetPosition().y - 0.25f; // 플레이어 위치보다 살짝 아래
+
+            hpBarBg.SetPosition(player.GetPosition().x, hpY); // 위치 세팅
+            hpBarBg.SetCameraPos(camPos.x, camPos.y);
+            hpBarBg.SetScale(barWidth, barHeight);
+            hpBarBg.Update(0.0f); // 애니메이션 없으므로 0.0f 전달
+
+            // 체력 게이지(초록 줄) 계산
+            float hpRatio = player.hp / player.maxHp;
+            if (hpRatio < 0.0f) hpRatio = 0.0f; // 마이너스 방지
+
+            float currentWidth = barWidth * hpRatio; // 현재 체력만큼 깎인 길이
+            float offset = (barWidth - currentWidth) * 0.5f;
+
+            hpBarFill.SetPosition(player.GetPosition().x - offset, hpY); // 위치 세팅
+            hpBarFill.SetCameraPos(camPos.x, camPos.y);
+            hpBarFill.SetScale(currentWidth, barHeight);
+
+            // 피가 30% 이하면 빨간색으로 변경
+            if (hpRatio <= 0.3f) hpBarFill.SetTintColor(1.0f, 0.0f, 0.0f);
+            else hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f);
+
+            hpBarFill.Update(0.0f);
+
+            // EXP 바 (화면 맨 위에 고정)
+            float expBarWidth = 2.0f;
+            float expBarHeight = 0.05f;
+            float expY = camPos.y + 0.95f;
+
+            expBarBg.SetPosition(camPos.x, expY);
+            expBarBg.SetCameraPos(camPos.x, camPos.y);
+            expBarBg.SetScale(expBarWidth, expBarHeight);
+            expBarBg.Update(0.0f);
+
+            float expRatio = player.exp / player.maxExp;
+            if (expRatio > 1.0f) expRatio = 1.0f;
+
+            float currentExpWidth = expBarWidth * expRatio;
+            float expOffset = (expBarWidth - currentExpWidth) * 0.5f;
+
+            expBarFill.SetPosition(camPos.x - expOffset, expY);
+            expBarFill.SetCameraPos(camPos.x, camPos.y);
+            expBarFill.SetScale(currentExpWidth, expBarHeight);
+            expBarFill.Update(0.0f);
+
+            // 레벨 UI (우측 상단)
+            float uiY = camPos.y + 0.85f; // EXP 바 살짝 아래
+            float levelX = camPos.x + 0.8f; // 화면 우측으로 이동
+
+            levelBg.SetPosition(levelX, uiY);
+            levelBg.SetCameraPos(camPos.x, camPos.y);
+            levelBg.Update(0.0f);
+
+            levelText.SetFrame(player.level % 10);
+            levelText.SetPosition(levelX, uiY);
+            levelText.SetCameraPos(camPos.x, camPos.y);
+            levelText.Update(0.0f);
+
+
+            // 타이머 시스템 (화면 중앙 상단 배치)
+            // 전체 시간을 분(MM)과 초(SS)로 쪼개기
+            int minutes = (int)(gameTimer / 60.0f);
+            int seconds = (int)gameTimer % 60;
+
+            // 각 자릿수 추출 (예: 12분 34초 -> m1=1, m2=2, s1=3, s2=4)
+            int m1 = (minutes / 10) % 10;
+            int m2 = minutes % 10;
+            int s1 = (seconds / 10) % 10;
+            int s2 = seconds % 10;
+
+            // 폰트에 프레임(숫자) 적용
+            timerTexts[0].SetFrame(m1);
+            timerTexts[1].SetFrame(m2);
+            timerTexts[2].SetFrame(s1);
+            timerTexts[3].SetFrame(s2);
+
+            // 폰트 간격 설정 (가운데를 살짝 띄워서 ':' 역할을 대신함)
+            float spacing = 0.04f;
+            float gap = 0.03f; // 콜론(:)이 들어갈 빈 공간
+
+            timerTexts[0].SetPosition(camPos.x - spacing - gap, uiY);
+            timerTexts[1].SetPosition(camPos.x - gap, uiY);
+            timerTexts[2].SetPosition(camPos.x + gap, uiY);
+            timerTexts[3].SetPosition(camPos.x + spacing + gap, uiY);
+
+            for (int i = 0; i < 4; i++)
+            {
+                timerTexts[i].SetCameraPos(camPos.x, camPos.y);
+                timerTexts[i].Update(0.0f);
+            }
+
+            // 콜론 (:) 위치 잡기
+            // X좌표는 화면 정중앙(camPos.x), Y좌표는 타이머 기준 위/아래로 살짝 벌림
+            // Y좌표 세팅 (위쪽 점, 아래쪽 점)
+            float colonTopY = uiY + 0.015f;
+            float colonBottomY = uiY - 0.015f;
+
+            // 검은색 배경 점 (뒤에 그릴 예정)
+            timerColonBg[0].SetPosition(camPos.x, colonTopY);
+            timerColonBg[1].SetPosition(camPos.x, colonBottomY);
+
+            // 흰색 점 (앞에 그릴 예정)
+            timerColon[0].SetPosition(camPos.x, colonTopY);
+            timerColon[1].SetPosition(camPos.x, colonBottomY);
+
+            // 업데이트 호출 (카메라 좌표 전달)
+            for (int i = 0; i < 2; i++)
+            {
+                timerColonBg[i].SetCameraPos(camPos.x, camPos.y);
+                timerColonBg[i].Update(0.0f);
+
+                timerColon[i].SetCameraPos(camPos.x, camPos.y);
+                timerColon[i].Update(0.0f);
+            }
         }
 
-        // 젬 초기화 (플레이어에게 다가가서 먹히기)
-        for (int i = 0; i < MAX_GEMS; i++)
+        // 게임 오버 / 클리어 UI 위치 동기화 (항상 화면 정중앙)
+        // 현재 카메라 위치를 가져옴
+        XMFLOAT2 camPos = { player.GetPosition().x, player.GetPosition().y };
+        float camLimit = 4.0f;
+        if (camPos.x > camLimit)  camPos.x = camLimit;
+        if (camPos.x < -camLimit) camPos.x = -camLimit;
+        if (camPos.y > camLimit)  camPos.y = camLimit;
+        if (camPos.y < -camLimit) camPos.y = -camLimit;
+
+        // 카메라 위치에 정확히 겹치게 띄우고 애니메이션을 재생
+        if (currentState == GameState::GAME_OVER)
         {
-            if (gems[i].isDead) continue;
-            gems[i].SetCameraPos(camPos.x, camPos.y);
-            gems[i].Update(dt, player);
+            gameOverUI.SetPosition(camPos.x, camPos.y);
+            gameOverUI.SetCameraPos(camPos.x, camPos.y);
+            // dt를 넣어서 타이머가 굴러가게 애니메이션 재생
+            gameOverUI.Update(dt);
         }
-
-        // 데미지 텍스트 초기화
-        for (int i = 0; i < MAX_DMG_TEXTS; i++)
+        else if (currentState == GameState::CLEAR)
         {
-            if (dmgTexts[i].isDead) continue;
-            dmgTexts[i].SetCameraPos(camPos.x, camPos.y);
-            dmgTexts[i].Update(dt);
+            clearUI.SetPosition(camPos.x, camPos.y);
+            clearUI.SetCameraPos(camPos.x, camPos.y);
+            // dt를 넣어서 승리 애니메이션이 재생
+            clearUI.Update(dt);
         }
-
-        // HP바 크기와 위치 실시간 계산
-        float barWidth = 0.12f;      // 체력바 전체 가로길이
-        float barHeight = 0.02f;    // 체력바 세로 두께
-        float hpY = player.GetPosition().y - 0.25f; // 플레이어 위치보다 살짝 아래
-
-        hpBarBg.SetPosition(player.GetPosition().x, hpY); // 위치 세팅
-        hpBarBg.SetCameraPos(camPos.x, camPos.y);
-        hpBarBg.SetScale(barWidth, barHeight);
-        hpBarBg.Update(0.0f); // 애니메이션 없으므로 0.0f 전달
-
-        // 체력 게이지(초록 줄) 계산
-        float hpRatio = player.hp / player.maxHp;
-        if (hpRatio < 0.0f) hpRatio = 0.0f; // 마이너스 방지
-
-        float currentWidth = barWidth * hpRatio; // 현재 체력만큼 깎인 길이
-        float offset = (barWidth - currentWidth) * 0.5f;
-
-        hpBarFill.SetPosition(player.GetPosition().x - offset, hpY); // 위치 세팅
-        hpBarFill.SetCameraPos(camPos.x, camPos.y);
-        hpBarFill.SetScale(currentWidth, barHeight);
-
-        // 피가 30% 이하면 빨간색으로 변경
-        if (hpRatio <= 0.3f) hpBarFill.SetTintColor(1.0f, 0.0f, 0.0f);
-        else hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f);
-
-        hpBarFill.Update(0.0f);
-
-        // EXP 바 (화면 맨 위에 고정)
-        float expBarWidth = 2.0f;  // 화면 꽉 차는 가로 길이 (-1.0 ~ 1.0)
-        float expBarHeight = 0.05f; // 두께
-
-        // 카메라 기준 화면 맨 위 (y + 0.95f 언저리)
-        float expY = camPos.y + 0.95f;
-
-        expBarBg.SetPosition(camPos.x, expY);
-        expBarBg.SetCameraPos(camPos.x, camPos.y);
-        expBarBg.SetScale(expBarWidth, expBarHeight);
-        expBarBg.Update(0.0f);
-
-        float expRatio = player.exp / player.maxExp;
-        if (expRatio > 1.0f) expRatio = 1.0f;
-
-        float currentExpWidth = expBarWidth * expRatio;
-        float expOffset = (expBarWidth - currentExpWidth) * 0.5f;
-
-        expBarFill.SetPosition(camPos.x - expOffset, expY);
-        expBarFill.SetCameraPos(camPos.x, camPos.y);
-        expBarFill.SetScale(currentExpWidth, expBarHeight);
-        expBarFill.Update(0.0f);
-
-        // 레벨 UI (EXP 바 바로 아래 중앙에 배치)
-        float lvlY = camPos.y + 0.85f; // EXP 바(0.95f) 보다 살짝 아래
-
-        levelBg.SetPosition(camPos.x, lvlY);
-        levelBg.SetCameraPos(camPos.x, camPos.y);
-        levelBg.Update(0.0f);
-
-        // 플레이어의 현재 레벨(1의 자리)을 폰트로 띄움
-        levelText.SetFrame(player.level % 10);
-        // 텍스트를 배경 위에 완벽히 겹치게 배치
-        levelText.SetPosition(camPos.x, lvlY);
-        levelText.SetCameraPos(camPos.x, camPos.y);
-        levelText.Update(0.0f);
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -823,6 +1001,35 @@ public:
         // 레벨 UI 그리기 (가장 마지막에 그려서 맨 위에 덮기)
         levelBg.Render(commandList.Get());
         levelText.Render(commandList.Get());
+
+        // 타이머 그리기
+        for (int i = 0; i < 4; i++)
+        {
+            timerTexts[i].Render(commandList.Get());
+        }
+
+        // 콜론 (:) 그리기 (레이어링)
+        // 검은색 배경 점 (테두리) 먼저 그리기
+        for (int i = 0; i < 2; i++)
+        {
+            timerColonBg[i].Render(commandList.Get());
+        }
+
+        // 흰색 점 (알맹이) 그 위에 그리기
+        for (int i = 0; i < 2; i++)
+        {
+            timerColon[i].Render(commandList.Get());
+        }
+
+        // 시스템 UI 그리기
+        if (currentState == GameState::GAME_OVER)
+        {
+            gameOverUI.Render(commandList.Get());
+        }
+        else if (currentState == GameState::CLEAR)
+        {
+            clearUI.Render(commandList.Get());
+        }
 
         // Resource Barrier 복구
         // 다 그렸으니 다시 유저에게 보여주기 위해 출력용 (PRESENT) 상태로 되돌림
