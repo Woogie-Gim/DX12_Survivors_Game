@@ -27,16 +27,46 @@ public:
     // 게임 상태 (Game State) 열거형
     enum class GameState
     {
+        TITLE,          // 메인 타이틀 씬
         WEAPON_SELECT,  // 처음 시작 시 무기 고르는 상태
         PLAY,           // 정상 플레이 중
-        PAUSE,          // ESC 일시 정지
+        PAUSE,          // ESC 일시 정지, 설정 창
         GAME_OVER,      // HP 0 (사망)
         CLEAR,          // 생존 성공
     };
 
     // 게임 매니저용 변수들
-    // 처음 켜지면 무조건 무기 선택 창 부터
-    GameState currentState = GameState::WEAPON_SELECT;
+    // 처음 켜지면 무조건 타이틀 씬 부터
+    GameState currentState = GameState::TITLE;
+
+    // 메인 씬 (TITLE) 전용 객체들
+    GameObject titleBg;         // 타이틀 배경
+    GameObject titleText;       // 게임 로고 타이틀
+    Button btnStart;            // 게임 시작 버튼
+    Button btnSetting;          // 설정 버튼 (임시 비활성화)
+    Button btnExit;             // 종료 버튼
+
+    // 일시정지 씬 (PAUSE) 전용 객체들
+    GameObject pauseBg;         // 반투명한 검은색 배경 용도
+    Button btnPauseMain;        // 메인으로 돌아가기 버튼
+    Button btnPauseSetting;     // 설정 버튼
+    Button btnPauseExit;        // 종료 버튼
+
+    // 씬 전환 시 게임 데이터를 싹 초기화해주는 함수
+    void ResetGame()
+    {
+        player.hp = player.maxHp;
+        player.exp = 0.0f;
+        player.level = 1;
+        player.SetPosition(0.0f, 0.0f);
+        gameTimer = 0.0f;
+        selectedWeapon = -1;
+
+        for (int i = 0; i < ENEMY_COUNT; i++) enemies[i].isDead = true;
+        for (int i = 0; i < MAX_BULLETS; i++) bullets[i].isDead = true;
+        for (int i = 0; i < MAX_GEMS; i++) gems[i].isDead = true;
+        for (int i = 0; i < 4; i++) isBossSpawned[i] = false;
+    }
 
     // 무기 시스템 변수들
     int selectedWeapon = -1;        // 0 : 근접, 1 : 유도 총, 2 : 오라 (주변)
@@ -48,7 +78,7 @@ public:
     float auraRadius = 0.5f;
 
     // 무기 선택 UI용 객체
-    GameObject weaponCards[3];
+    Button weaponCards[3];
     GameObject weaponIcons[3];
 
     // 이펙트 & 오라 객체 풀링
@@ -511,24 +541,24 @@ public:
         // 무기 선택 카드 UI 초기화
         weaponCards[0].Initialize(d3dDevice.Get());
         weaponCards[0].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_card_1.png", 1);
-        weaponCards[0].SetScale(0.6f, 0.95f);
+        weaponCards[0].InitScale(0.6f, 0.95f);
         weaponCards[0].SetObjectType(0);
 
         weaponCards[1].Initialize(d3dDevice.Get());
         weaponCards[1].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_card_2.png", 1);
-        weaponCards[1].SetScale(0.6f, 0.95f);
+        weaponCards[1].InitScale(0.6f, 0.95f);
         weaponCards[1].SetObjectType(0);
 
         weaponCards[2].Initialize(d3dDevice.Get());
         weaponCards[2].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_card_3.png", 1);
-        weaponCards[2].SetScale(0.6f, 0.95f);
+        weaponCards[2].InitScale(0.6f, 0.95f);
         weaponCards[2].SetObjectType(0);
 
         // 카드 위에 올라갈 무기 아이콘 초기화
         for (int i = 0; i < 3; i++)
         {
             weaponIcons[i].Initialize(d3dDevice.Get());
-            weaponIcons[i].SetScale(0.3f, 0.3f); // 카드보다 작게 크기 조절
+            weaponIcons[i].SetScale(0.45f, 0.45f); // 카드보다 작게 크기 조절
             weaponIcons[i].SetObjectType(0);
         }
 
@@ -561,6 +591,53 @@ public:
         auraEffect.SetScale(auraRadius * 2.0f, auraRadius * 2.0f); // 반지름의 2배 = 지름
         auraEffect.SetObjectType(0);
         auraEffect.SetFrameDuration(0.016f);
+
+        // 메인 씬 (TITLE) 초기화
+        titleBg.Initialize(d3dDevice.Get());
+        titleBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/map_bg.png", 1);
+        titleBg.SetScale(4.0f, 3.0f); // 화면 꽉 차게
+        titleBg.SetObjectType(0);
+
+        titleText.Initialize(d3dDevice.Get());
+        titleText.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/title_text.png", 1);
+        titleText.SetScale(1.0f, 1.0f);
+        titleText.SetObjectType(0);
+
+        btnStart.Initialize(d3dDevice.Get());
+        btnStart.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_start.png", 1);
+        btnStart.InitScale(0.4f, 0.2f); // 버튼 기본 크기 세팅
+        btnStart.SetObjectType(0);
+
+        btnSetting.Initialize(d3dDevice.Get());
+        btnSetting.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_setting.png", 1);
+        btnSetting.InitScale(0.4f, 0.2f);
+        btnSetting.SetObjectType(0);
+
+        btnExit.Initialize(d3dDevice.Get());
+        btnExit.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_exit.png", 1);
+        btnExit.InitScale(0.4f, 0.2f);
+        btnExit.SetObjectType(0);
+
+        // 일시정지 (PAUSE) 설정 창 초기화
+        pauseBg.Initialize(d3dDevice.Get());
+        pauseBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/pause_bg.png", 1); // 반투명 팝업 창 느낌
+        pauseBg.SetScale(0.6f, 1.2f);
+        pauseBg.SetObjectType(0);
+
+        btnPauseMain.Initialize(d3dDevice.Get());
+        btnPauseMain.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_main.png", 1);
+        btnPauseMain.InitScale(0.5f, 0.25f);
+        btnPauseMain.SetObjectType(0);
+
+        btnPauseSetting.Initialize(d3dDevice.Get());
+        btnPauseSetting.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_setting.png", 1);
+        btnPauseSetting.InitScale(0.5f, 0.25f);
+        btnPauseSetting.SetObjectType(0);
+
+        btnPauseExit.Initialize(d3dDevice.Get());
+        btnPauseExit.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_exit.png", 1);
+        btnPauseExit.InitScale(0.5f, 0.25f);
+        btnPauseExit.SetObjectType(0);
 
         // 모든 텍스처 복사 명령 기록이 끝났으니 Close() 하고 한 방에 실행
         commandList->Close();
@@ -610,8 +687,47 @@ public:
         if (camPos.y > camLimit)  camPos.y = camLimit;
         if (camPos.y < -camLimit) camPos.y = -camLimit;
 
-        // 무기 선택 창 (WEAPON_SELECT)
-        if (currentState == GameState::WEAPON_SELECT)
+        // 마우스 클릭 상태 1번만 체크
+        bool isMouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        POINT pt; GetCursorPos(&pt); ScreenToClient(FindWindowW(L"DX12PortfolioClass", nullptr), &pt);
+        float mouseX = (pt.x * 2.0f / 1280.0f) - 1.0f;
+        float mouseY = -((pt.y * 2.0f / 720.0f) - 1.0f); // Y축은 위가 +이므로 뒤집기
+
+        // 메인 씬 (TITLE)
+        if (currentState == GameState::TITLE)
+        {
+            // 카메라 위치 대신 (0, 0)을 전달하여 화면 중앙에 고정
+            titleBg.SetCameraPos(0, 0);
+            titleBg.Update(0.0f);
+
+            titleText.SetPosition(0.0f, 0.4f);
+            titleText.SetCameraPos(0, 0);
+            titleText.Update(0.0f);
+
+            // 버튼들도 (0, 0) 카메라 기준으로 배치
+            btnStart.SetPosition(0.0f, -0.1f); btnStart.SetCameraPos(0, 0);
+            btnSetting.SetPosition(0.0f, -0.4f); btnSetting.SetCameraPos(0, 0);
+            btnExit.SetPosition(0.0f, -0.7f); btnExit.SetCameraPos(0, 0);
+
+            if (btnStart.UpdateButton(mouseX, mouseY, isMouseDown))
+            {
+                ResetGame();
+                currentState = GameState::WEAPON_SELECT;
+                Sleep(200);
+            }
+            if (btnSetting.UpdateButton(mouseX, mouseY, isMouseDown))
+            {
+                // 나중에 세팅 기능 추가
+            }
+            if (btnExit.UpdateButton(mouseX, mouseY, isMouseDown))
+            {
+                PostQuitMessage(0); // 프로그램 종료
+            }
+
+            // 부드러운 행렬 업데이트를 위해 호출
+            btnStart.Update(0.0f); btnSetting.Update(0.0f); btnExit.Update(0.0f);
+        }
+        else if (currentState == GameState::WEAPON_SELECT)   // 무기 선택 창 (WEAPON_SELECT)
         {
             // 배경과 플레이어가 정지된 상태로 화면에 그려지도록 위치 업데이트 유지
             player.SetCameraPos(camPos.x, camPos.y);
@@ -637,8 +753,20 @@ public:
             weaponIcons[1].SetPosition(camPos.x, camPos.y + iconOffsetY);
             weaponIcons[2].SetPosition(camPos.x + spacing, camPos.y + iconOffsetY);
 
+            // 카메라 위치가 반영된 월드 마우스 좌표 계산
+            float worldMouseX = mouseX + camPos.x;
+            float worldMouseY = mouseY + camPos.y;
+
             for (int i = 0; i < 3; i++)
             {
+                // 버튼 업데이트 및 클릭 판정 (화면 3등분 대신 버튼 자체 충돌 판정 사용!)
+                if (weaponCards[i].UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+                {
+                    selectedWeapon = i; // 0, 1, 2번 인덱스 그대로 무기 번호로 사용
+                    currentState = GameState::PLAY;
+                    Sleep(200); // 연속 클릭 방지
+                }
+
                 weaponCards[i].SetCameraPos(camPos.x, camPos.y);
                 weaponCards[i].Update(0.0f);
 
@@ -1349,6 +1477,45 @@ public:
                 timerColon[i].Update(0.0f);
             }
         }
+        else if (currentState == GameState::PAUSE)  // 일시 정지 씬
+        {
+            // 배경과 버튼을 카메라 중앙에 띄움
+            pauseBg.SetPosition(camPos.x, camPos.y);
+            pauseBg.SetCameraPos(camPos.x, camPos.y);
+            pauseBg.Update(0.0f);
+
+            btnPauseMain.SetPosition(camPos.x, camPos.y + 0.2f);
+            btnPauseMain.SetCameraPos(camPos.x, camPos.y);
+
+            btnPauseSetting.SetPosition(camPos.x, camPos.y - 0.1f);
+            btnPauseSetting.SetCameraPos(camPos.x, camPos.y);
+
+            btnPauseExit.SetPosition(camPos.x, camPos.y - 0.4f);
+            btnPauseExit.SetCameraPos(camPos.x, camPos.y);
+
+            // 마우스 좌표(화면 기준)를 버튼 좌표(월드 기준)에 맞게 카메라 위치만큼 더함
+            float worldMouseX = mouseX + camPos.x;
+            float worldMouseY = mouseY + camPos.y;
+
+            // 버튼 판정 시 기존의 mouseX, mouseY 대신 worldMouseX, worldMouseY
+            if (btnPauseMain.UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+            {
+                currentState = GameState::TITLE; // 메인으로 돌아감
+                Sleep(200);
+            }
+            if (btnPauseSetting.UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+            {
+                // 세팅 기능
+            }
+            if (btnPauseExit.UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+            {
+                PostQuitMessage(0); // 종료
+            }
+
+            btnPauseMain.Update(0.0f);
+            btnPauseSetting.Update(0.0f);
+            btnPauseExit.Update(0.0f);
+        }
 
         // 게임 오버 / 클리어 UI 위치 동기화 (항상 화면 정중앙)
         // 카메라 위치에 정확히 겹치게 띄우고 애니메이션을 재생
@@ -1401,90 +1568,123 @@ public:
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 
-        // [Layer 1] 배경 맵 (가장 밑바닥)
-        background.Render(commandList.Get());
-
-        // [Layer 2] 경험치 젬 (바닥에 떨어져 있음)
-        for (int i = 0; i < MAX_GEMS; i++)
+        if (currentState == GameState::TITLE)
         {
-            if (!gems[i].isDead) gems[i].Render(commandList.Get());
+            // 타이틀 씬일 때는 오직 타이틀 전용 객체들만 렌더링
+            titleBg.Render(commandList.Get());
+            titleText.Render(commandList.Get());
+            btnStart.Render(commandList.Get());
+            btnSetting.Render(commandList.Get());
+            btnExit.Render(commandList.Get());
         }
-
-        // [Layer 3] 전기 오라 이펙트 (적과 플레이어 발밑에 깔리게 연출)
-        if (currentState == GameState::PLAY && selectedWeapon == 2 && isAuraActive)
+        else
         {
-            auraEffect.Render(commandList.Get());
-        }
+            // 타이틀 화면이 아닐 때만 (무기 선택, 플레이, 일시정지 등) 인게임 세계를 렌더링
 
-        // [Layer 4] 살아있는 적군들
-        for (int i = 0; i < ENEMY_COUNT; i++)
-        {
-            if (!enemies[i].isDead) enemies[i].Render(commandList.Get());
-        }
+            // [Layer 1] 배경 맵 (가장 밑바닥)
+            background.Render(commandList.Get());
 
-        // [Layer 5] 플레이어 (항상 적군보다 위에 보이게)
-        player.Render(commandList.Get());
-
-        // [Layer 6] 날아다니는 미사일 (캐릭터들 위로 날아감)
-        for (int i = 0; i < MAX_BULLETS; i++)
-        {
-            if (!bullets[i].isDead) bullets[i].Render(commandList.Get());
-        }
-
-        // [Layer 7] 타격 이펙트
-        for (int i = 0; i < MAX_EFFECTS; i++)
-        {
-            if (!meleeEffects[i].isDead) meleeEffects[i].Render(commandList.Get());
-            if (!hitEffects[i].isDead) hitEffects[i].Render(commandList.Get());
-        }
-
-        // UI 레이어 (게임 화면과 무관하게 항상 최상단에 뜨는 요소들)
-
-        // 플레이어 체력바 (발 밑)
-        hpBarBg.Render(commandList.Get());
-        hpBarFill.Render(commandList.Get());
-
-        // 피격 데미지 텍스트 (체력바 위로 올라가게)
-        for (int i = 0; i < MAX_DMG_TEXTS; i++)
-        {
-            if (!dmgTexts[i].isDead) dmgTexts[i].Render(commandList.Get());
-        }
-
-        // 상단 시스템 UI (경험치바, 레벨, 타이머)
-        expBarBg.Render(commandList.Get());
-        expBarFill.Render(commandList.Get());
-
-        levelBg.Render(commandList.Get());
-        levelText.Render(commandList.Get());
-
-        for (int i = 0; i < 4; i++) timerTexts[i].Render(commandList.Get());
-        for (int i = 0; i < 2; i++) timerColonBg[i].Render(commandList.Get());
-        for (int i = 0; i < 2; i++) timerColon[i].Render(commandList.Get());
-
-        // [Layer 8] 무기 선택 카드 (게임 UI를 가리면서 화면 정중앙에 뜸)
-        if (currentState == GameState::WEAPON_SELECT)
-        {
-            // 배경 카드를 먼저 그리고
-            for (int i = 0; i < 3; i++)
+            // [Layer 2] 경험치 젬
+            for (int i = 0; i < MAX_GEMS; i++)
             {
-                weaponCards[i].Render(commandList.Get());
+                if (!gems[i].isDead) 
+                {
+                    gems[i].Render(commandList.Get());
+                }
             }
 
-            // 그 위에 아이콘을 덮어 씌움
-            for (int i = 0; i < 3; i++)
+            // [Layer 3] 전기 오라 이펙트 (플레이 상태이고 오라가 활성화된 경우만)
+            if (currentState == GameState::PLAY && selectedWeapon == 2 && isAuraActive)
             {
-                weaponIcons[i].Render(commandList.Get());
+                auraEffect.Render(commandList.Get());
             }
-        }
 
-        // [Layer 9] 시스템 메시지 UI (가장 마지막에 덮음)
-        if (currentState == GameState::GAME_OVER)
-        {
-            gameOverUI.Render(commandList.Get());
-        }
-        else if (currentState == GameState::CLEAR)
-        {
-            clearUI.Render(commandList.Get());
+            // [Layer 4] 살아있는 적군들
+            for (int i = 0; i < ENEMY_COUNT; i++)
+            {
+                if (!enemies[i].isDead) 
+                {
+                    enemies[i].Render(commandList.Get());
+                }
+            }
+
+            // [Layer 5] 플레이어
+            player.Render(commandList.Get());
+
+            // [Layer 6] 날아다니는 미사일
+            for (int i = 0; i < MAX_BULLETS; i++)
+            {
+                if (!bullets[i].isDead) 
+                {
+                    bullets[i].Render(commandList.Get());
+                }
+            }
+
+            // [Layer 7] 타격 이펙트
+            for (int i = 0; i < MAX_EFFECTS; i++)
+            {
+                if (!meleeEffects[i].isDead) 
+                {
+                    meleeEffects[i].Render(commandList.Get());
+                }
+                if (!hitEffects[i].isDead) 
+                {
+                    hitEffects[i].Render(commandList.Get());
+                }
+            }
+
+            // [Layer 8] 공통 인게임 UI (체력바, 경험치바, 레벨, 타이머)
+            hpBarBg.Render(commandList.Get());
+            hpBarFill.Render(commandList.Get());
+
+            for (int i = 0; i < MAX_DMG_TEXTS; i++)
+            {
+                if (!dmgTexts[i].isDead) 
+                {
+                    dmgTexts[i].Render(commandList.Get());
+                }
+            }
+
+            expBarBg.Render(commandList.Get());
+            expBarFill.Render(commandList.Get());
+
+            levelBg.Render(commandList.Get());
+            levelText.Render(commandList.Get());
+
+            for (int i = 0; i < 4; i++) 
+            {
+                timerTexts[i].Render(commandList.Get());
+            }
+            for (int i = 0; i < 2; i++) 
+            {
+                timerColonBg[i].Render(commandList.Get());
+                timerColon[i].Render(commandList.Get());
+            }
+
+            // [Layer 9] 상태별 오버레이 (무기 선택 카드 또는 일시정지 팝업)
+            if (currentState == GameState::WEAPON_SELECT)
+            {
+                for (int i = 0; i < 3; i++) 
+                {
+                    weaponCards[i].Render(commandList.Get());
+                    weaponIcons[i].Render(commandList.Get());
+                }
+            }
+            else if (currentState == GameState::PAUSE)
+            {
+                pauseBg.Render(commandList.Get());
+                btnPauseMain.Render(commandList.Get());
+                btnPauseSetting.Render(commandList.Get());
+                btnPauseExit.Render(commandList.Get());
+            }
+            else if (currentState == GameState::GAME_OVER)
+            {
+                gameOverUI.Render(commandList.Get());
+            }
+            else if (currentState == GameState::CLEAR)
+            {
+                clearUI.Render(commandList.Get());
+            }
         }
 
         // Resource Barrier 복구 (그리기용 -> 출력용)

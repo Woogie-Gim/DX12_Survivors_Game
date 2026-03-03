@@ -511,3 +511,51 @@ public:
 		GameObject::Update(dt);
 	}
 };
+
+// 마우스 반응형 버튼 클래스
+class Button : public GameObject
+{
+public:
+	float baseScaleX = 1.0f;
+	float baseScaleY = 1.0f;
+
+	// 초기 크기를 기억해두는 함수
+	void InitScale(float x, float y)
+	{
+		baseScaleX = x;
+		baseScaleY = y;
+		SetScale(x, y);
+	}
+
+	// 마우스 위치와 클릭 여부를 받아서 상태를 업데이트 하고 클릭됨을 반환
+	bool UpdateButton(float mouseX, float mouseY, bool isMouseDown)
+	{
+		// 내 버튼의 좌우, 상하 경계선 구하기
+		float halfW = baseScaleX * 0.5f;
+		float halfH = baseScaleY * 0.5f;
+
+		// 마우스가 내 버튼 네모 칸 안에 들어왔는지 검사 (AABB 충돌)
+		if (mouseX >= position.x - halfW && mouseX <= position.x + halfW &&
+			mouseY >= position.y - halfH && mouseY <= position.y + halfH)
+		{
+			if (isMouseDown)
+			{
+				// 클릭 중이면 10% 쪼그라들게 연출 (꾹 눌린 느낌)
+				SetScale(baseScaleX * 0.9f, baseScaleY * 0.9f);
+				return true; // 클릭 성공!
+			}
+			else
+			{
+				// 마우스만 올려두면(Hover) 5% 커지게 연출 (선택된 느낌)
+				SetScale(baseScaleX * 1.05f, baseScaleY * 1.05f);
+				return false;
+			}
+		}
+		else
+		{
+			// 마우스가 벗어나면 원상 복구
+			SetScale(baseScaleX, baseScaleY);
+			return false;
+		}
+	}
+};
