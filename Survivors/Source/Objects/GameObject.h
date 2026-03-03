@@ -67,6 +67,9 @@ public:
 	void SetFrame(int frame) { currentFrame = frame; }
 	void SetFrameDuration(float duration) { frameDuration = duration; }
 	
+	// 외부에서 이 객체가 뒤집혔는지 확인할 수 있게 해주는 함수
+	bool GetIsFlipped() const { return isFlipped; }
+
 	// 객체 생성 시 GPU에 자신만의 메모리 (상수 버퍼)를 할당
 	virtual void Initialize(ID3D12Device* device)
 	{
@@ -397,11 +400,20 @@ public:
 	float damage = 15.0f;	// 미사일 데미지
 	bool isDead = true;		// 처음엔 비활성화 (발사 대기) 상태
 
+	float lifeTime = 0.0f;  // 총알이 살아있는 시간
+
 	// 미사일 전용 Update 메인 루프에서 다 계산해주므로 이제 가볍게 행렬만 갱신
 	void Update(float dt)
 	{
 		// 죽은 미사일은 계산하지 않음
 		if (isDead) return;
+
+		// 3초 이상 날아가면 화면 밖으로 나간 것으로 간주하고 파괴 (풀 반환)
+		lifeTime += dt;
+		if (lifeTime > 3.0f)
+		{
+			isDead = true;
+		}
 
 		// 부모(GameObject)의 행렬 갱신만 호출
 		GameObject::Update(dt);
@@ -465,6 +477,35 @@ public:
 		if (lifeTime >= maxLife)
 		{
 			isDead = true;
+		}
+
+		GameObject::Update(dt);
+	}
+};
+
+// 한 번 재생되고 사라지는 타격 이펙트 클래스
+class Effect : public GameObject
+{
+public:
+	bool isDead = true;
+
+	void Update(float dt)
+	{
+		if (isDead) return;
+
+		// 애니메이션 프레임 넘기기
+		frameTime += dt;
+		if (frameTime >= frameDuration)
+		{
+			currentFrame++;
+			frameTime = 0.0f;
+
+			// 마지막 프레임에 도달하면 이펙트 파괴
+			if (currentFrame >= maxFrames)
+			{
+				isDead = true;
+				currentFrame = 0; // 다음을 위해 초기화
+			}
 		}
 
 		GameObject::Update(dt);

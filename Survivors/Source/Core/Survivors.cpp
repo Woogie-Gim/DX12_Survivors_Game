@@ -27,6 +27,7 @@ public:
     // 게임 상태 (Game State) 열거형
     enum class GameState
     {
+        WEAPON_SELECT,  // 처음 시작 시 무기 고르는 상태
         PLAY,           // 정상 플레이 중
         PAUSE,          // ESC 일시 정지
         GAME_OVER,      // HP 0 (사망)
@@ -34,9 +35,29 @@ public:
     };
 
     // 게임 매니저용 변수들
-    GameState currentState = GameState::PLAY;      // 기본 상태는 PLAY
+    // 처음 켜지면 무조건 무기 선택 창 부터
+    GameState currentState = GameState::WEAPON_SELECT;
+
+    // 무기 시스템 변수들
+    int selectedWeapon = -1;        // 0 : 근접, 1 : 유도 총, 2 : 오라 (주변)
+    float attackTimer = 0.0f;
+    float attackCooldown = 1.0f;    // 기본 1초마다 공격
+
+    // 오라 전용 변수
+    bool isAuraActive = false;
+    float auraRadius = 0.5f;
+
+    // 무기 선택 UI용 객체
+    GameObject weaponCards[3];
+    GameObject weaponIcons[3];
+
+    // 이펙트 & 오라 객체 풀링
+    static const int MAX_EFFECTS = 30;
+    Effect meleeEffects[MAX_EFFECTS];
+    Effect hitEffects[MAX_EFFECTS];
+    GameObject auraEffect;  // 오라는 플레이어 몸에 1개만 붙어있으므로 단일 객체
+
     float gameTimer = 0.0f;                        // 현재 흘러간 시간
-    float maxGameTime = 60.0f;                     // 목표 생존 시간 (테스트 용 60초)
     bool isEscPressed = false;                     // ESC 키 꾹 누름 (중복) 방지용 플래그
 
     GameObject gameOverUI;
@@ -487,6 +508,60 @@ public:
             timerColon[i].SetObjectType(1);
         }
 
+        // 무기 선택 카드 UI 초기화
+        weaponCards[0].Initialize(d3dDevice.Get());
+        weaponCards[0].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_card_1.png", 1);
+        weaponCards[0].SetScale(0.6f, 0.95f);
+        weaponCards[0].SetObjectType(0);
+
+        weaponCards[1].Initialize(d3dDevice.Get());
+        weaponCards[1].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_card_2.png", 1);
+        weaponCards[1].SetScale(0.6f, 0.95f);
+        weaponCards[1].SetObjectType(0);
+
+        weaponCards[2].Initialize(d3dDevice.Get());
+        weaponCards[2].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_card_3.png", 1);
+        weaponCards[2].SetScale(0.6f, 0.95f);
+        weaponCards[2].SetObjectType(0);
+
+        // 카드 위에 올라갈 무기 아이콘 초기화
+        for (int i = 0; i < 3; i++)
+        {
+            weaponIcons[i].Initialize(d3dDevice.Get());
+            weaponIcons[i].SetScale(0.3f, 0.3f); // 카드보다 작게 크기 조절
+            weaponIcons[i].SetObjectType(0);
+        }
+
+        // 각각 지정된 이름의 텍스처 로드
+        weaponIcons[0].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/MELEE.png", 1);
+        weaponIcons[1].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/BULLET.png", 1);
+        weaponIcons[2].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/AURA.png", 1);
+
+        // 이펙트 초기화
+        for (int i = 0; i < MAX_EFFECTS; i++)
+        {
+            meleeEffects[i].Initialize(d3dDevice.Get());
+            meleeEffects[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_melee.png", 30);
+            meleeEffects[i].SetScale(0.3f, 0.3f);
+            meleeEffects[i].SetObjectType(0);
+            meleeEffects[i].SetFrameDuration(0.016f); // 이펙트는 빠르게 재생
+            meleeEffects[i].isDead = true;
+
+            hitEffects[i].Initialize(d3dDevice.Get());
+            hitEffects[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_bullet_hit.png", 30);
+            hitEffects[i].SetScale(0.2f, 0.2f);
+            hitEffects[i].SetObjectType(0);
+            hitEffects[i].SetFrameDuration(0.016f);
+            hitEffects[i].isDead = true;
+        }
+
+        // 오라 이펙트
+        auraEffect.Initialize(d3dDevice.Get());
+        auraEffect.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/weapon_aura.png", 30);
+        auraEffect.SetScale(auraRadius * 2.0f, auraRadius * 2.0f); // 반지름의 2배 = 지름
+        auraEffect.SetObjectType(0);
+        auraEffect.SetFrameDuration(0.016f);
+
         // 모든 텍스처 복사 명령 기록이 끝났으니 Close() 하고 한 방에 실행
         commandList->Close();
         ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
@@ -510,8 +585,14 @@ public:
         {
             if (!isEscPressed)  // 키를 누르는 그 순간 딱 한 번만 작동
             {
-                if (currentState == GameState::PLAY) currentState = GameState::PAUSE;
-                else if (currentState == GameState::PAUSE) currentState = GameState::PLAY;
+                if (currentState == GameState::PLAY)
+                {
+                    currentState = GameState::PAUSE;
+                }
+                else if (currentState == GameState::PAUSE)
+                {
+                    currentState = GameState::PLAY;
+                }
                 isEscPressed = true;
             }
         }
@@ -520,8 +601,74 @@ public:
             isEscPressed = false;   // 키를 떼면 다시 누를 수 있게 리셋
         }
 
+        // 공용 카메라 위치 계산
+        XMFLOAT2 camPos = { player.GetPosition().x, player.GetPosition().y };
+        float camLimit = 4.0f;
+
+        if (camPos.x > camLimit)  camPos.x = camLimit;
+        if (camPos.x < -camLimit) camPos.x = -camLimit;
+        if (camPos.y > camLimit)  camPos.y = camLimit;
+        if (camPos.y < -camLimit) camPos.y = -camLimit;
+
+        // 무기 선택 창 (WEAPON_SELECT)
+        if (currentState == GameState::WEAPON_SELECT)
+        {
+            // 배경과 플레이어가 정지된 상태로 화면에 그려지도록 위치 업데이트 유지
+            player.SetCameraPos(camPos.x, camPos.y);
+            player.GameObject::Update(0.0f);
+
+            background.SetCameraPos(camPos.x, camPos.y);
+            background.Update(0.0f);
+
+            // 카드 3장을 화면 중앙에 나란히 배치 (크기 및 간격 확장)
+            float spacing = 0.7f;
+            float iconOffsetY = 0.05f;
+
+            weaponCards[0].SetScale(0.6f, 0.95f);
+            weaponCards[1].SetScale(0.6f, 0.95f);
+            weaponCards[2].SetScale(0.6f, 0.95f);
+
+            weaponCards[0].SetPosition(camPos.x - spacing, camPos.y);
+            weaponCards[1].SetPosition(camPos.x, camPos.y);
+            weaponCards[2].SetPosition(camPos.x + spacing, camPos.y);
+
+            // 아이콘 위치 세팅 (카드 위치와 동일하게 맞춤)
+            weaponIcons[0].SetPosition(camPos.x - spacing, camPos.y + iconOffsetY);
+            weaponIcons[1].SetPosition(camPos.x, camPos.y + iconOffsetY);
+            weaponIcons[2].SetPosition(camPos.x + spacing, camPos.y + iconOffsetY);
+
+            for (int i = 0; i < 3; i++)
+            {
+                weaponCards[i].SetCameraPos(camPos.x, camPos.y);
+                weaponCards[i].Update(0.0f);
+
+                // 아이콘도 카메라와 매트릭스 업데이트
+                weaponIcons[i].SetCameraPos(camPos.x, camPos.y);
+                weaponIcons[i].Update(0.0f);
+            }
+
+            // 마우스 클릭 감지 로직 (Windows API)
+            if (GetAsyncKeyState(VK_LBUTTON) & 0x8000)  // 마우스 왼쪽 버튼 클릭 시
+            {
+                POINT pt;
+                GetCursorPos(&pt);
+                ScreenToClient(FindWindowW(L"DX12PortfolioClass", nullptr), &pt);
+
+                // 마우스 좌표(픽셀)를 화면 좌표계 (-1.0 ~ 1.0)로 변환
+                float mouseX = (pt.x * 2.0f / 1280.0f) - 1.0f;
+
+                // 카드가 3등분 된 영역 중 어디를 클릭했는지 판별
+                if (mouseX < -0.33f) selectedWeapon = 0;      // 왼쪽 클릭 -> 근접
+                else if (mouseX < 0.33f) selectedWeapon = 1;  // 중앙 클릭 -> 총
+                else selectedWeapon = 2;                      // 오른쪽 클릭 -> 오라      
+
+                // 무기 고르면 게임 시작
+                currentState = GameState::PLAY;
+                Sleep(200); // 연속 클릭 방지용 아주 짧은 딜레이
+            }
+        }
         // 오직 PLAY 상태일 때만 게임 세계의 시간이 흐름
-        if (currentState == GameState::PLAY)
+        else if (currentState == GameState::PLAY)
         {
             // 타이머 증가 및 클리어 체크
             gameTimer += dt;
@@ -530,104 +677,17 @@ public:
             if (player.hp <= 0.0f)
             {
                 currentState = GameState::GAME_OVER;
-            }       
+            }
 
             // 충돌 범위 반지름 세팅
             float playerRadius = 0.08f;
             float enemyRadius = 0.08f;
 
             // Player vs Enemy 충돌 검사 (속도 저하 로직)
-
             // 매 프레임 플레이어의 속도를 원래 속도로 원상복구 시킴
             player.currentSpeed = player.basespeed;
             XMFLOAT3 playerPos = player.GetPosition();
             bool isPlayerHit = false;
-
-            // 20분 (1200초) 웨이브 & 보스 매니저
-            spawnTimer += dt;
-            int currentMinute = (int)(gameTimer / 60.0f);
-            float spawnInterval = max(0.3f, 2.5f - (currentMinute * 0.15f));
-
-            auto SpawnEnemy = [&](int targetType, float x, float y) 
-            {
-                int startIndex = rand() % ENEMY_COUNT;
-                for (int i = 0; i < ENEMY_COUNT; i++)
-                {
-                    int idx = (startIndex + i) % ENEMY_COUNT;
-                    if (enemies[idx].isDead && enemies[idx].enemyType == targetType)
-                    {
-                        enemies[idx].InitStats();
-                        enemies[idx].SetPosition(x, y);
-                        break;
-                    }
-                }
-            };
-
-            // 보스 스폰 로직 (5, 10, 15분엔 중간 보스 / 19분에 최종 보스)
-            if (currentMinute == 5 && !isBossSpawned[0])
-            {
-                SpawnEnemy(3, playerPos.x + 2.5f, playerPos.y);
-                isBossSpawned[0] = true;
-            }
-            else if (currentMinute == 10 && !isBossSpawned[1])
-            {
-                SpawnEnemy(4, playerPos.x - 2.5f, playerPos.y);
-                isBossSpawned[1] = true;
-            }
-            else if (currentMinute == 15 && !isBossSpawned[2])
-            {
-                SpawnEnemy(5, playerPos.x, playerPos.y + 2.5f);
-                isBossSpawned[2] = true;
-            }
-            else if (currentMinute == 19 && !isBossSpawned[3])
-            {
-                SpawnEnemy(6, playerPos.x, playerPos.y - 2.5f);
-                isBossSpawned[3] = true;
-            }
-
-            // 20분 스케일 일반 웨이브 스폰 로직
-            if (spawnTimer >= spawnInterval)
-            {
-                spawnTimer = 0.0f;
-                XMFLOAT3 pPos = player.GetPosition();
-
-                if (currentMinute < 5)
-                {
-                    for (int k = 0; k < 6; k++)
-                    {
-                        float angle = k * (XM_2PI / 6.0f);
-                        SpawnEnemy(0, playerPos.x + cos(angle) * 1.5f, playerPos.y + sin(angle) * 1.5f);
-                    }
-                }
-                else if (currentMinute < 10)
-                {
-                    for (int k = 0; k < 6; k++)
-                    {
-                        float offsetX = (playerPos.x - 2.0f) + (k * 0.8f);
-                        SpawnEnemy(1, offsetX, playerPos.y + 1.5f);
-                        SpawnEnemy(1, offsetX, playerPos.y - 1.5f);
-                    }
-                }
-                else if (currentMinute < 15)
-                {
-                    SpawnEnemy(2, pPos.x + 1.5f, pPos.y); SpawnEnemy(2, pPos.x - 1.5f, pPos.y);
-                    SpawnEnemy(2, pPos.x, pPos.y + 1.5f); SpawnEnemy(2, pPos.x, pPos.y - 1.5f);
-
-                    for (int k = 0; k < 5; k++) 
-                    {
-                        float angle = k * (XM_2PI / 5.0f) + 0.5f;
-                        SpawnEnemy(1, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
-                    }
-                }
-                else
-                {
-                    for (int k = 0; k < 10; k++) 
-                    {
-                        float angle = k * (XM_2PI / 10.0f);
-                        SpawnEnemy(k % 3, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
-                    }
-                }
-            }
 
             for (int i = 0; i < ENEMY_COUNT; i++)
             {
@@ -639,7 +699,7 @@ public:
                 float dy = playerPos.y - enemyPos.y;
                 float dist = sqrt((dx * dx) + (dy * dy));
 
-                // 내 반지름 + 적 반지름 보다 거리가 짧으면? 충돌 (겹침) 발생
+                // 내 반지름 + 적 반지름 보다 거리가 짧으면 충돌 (겹침) 발생
                 if (dist < playerRadius + enemyRadius)
                 {
                     isPlayerHit = true;
@@ -684,43 +744,212 @@ public:
             player.SetPosition(pPos.x, pPos.y);
 
             // 카메라 좌표 설정 (카메라는 항상 최신 플레이어 위치를 따라가되 가두기 적용)
-            XMFLOAT2 camPos = { player.GetPosition().x, player.GetPosition().y };
+            camPos = { player.GetPosition().x, player.GetPosition().y };
 
-            // 🚨 카메라가 파란색 허공을 비추지 않도록 제한하는 마지노선!
-            float camLimit = 4.0f;
-
+            // 카메라가 파란색 허공을 비추지 않도록 제한하는 마지노선
             if (camPos.x > camLimit)  camPos.x = camLimit;   // 오른쪽 카메라 정지
             if (camPos.x < -camLimit) camPos.x = -camLimit;  // 왼쪽 카메라 정지
             if (camPos.y > camLimit)  camPos.y = camLimit;   // 위쪽 카메라 정지
             if (camPos.y < -camLimit) camPos.y = -camLimit;  // 아래쪽 카메라 정지
 
-            // 모든 객체에 "제한이 걸린" 카메라 좌표 전달 (플레이어 본인 포함)
+            // 모든 객체에 제한이 걸린 카메라 좌표 전달 (플레이어 본인 포함)
             player.SetCameraPos(camPos.x, camPos.y);
 
-            // 새 카메라 위치로 행렬을 다시 계산하기 위한 강제 업데이트 (dt는 0.0f 전달)
+            // 새 카메라 위치로 행렬을 다시 계산하기 위한 강제 업데이트
             player.GameObject::Update(0.0f);
 
-            // 무한 맵 (배경) 스크롤 로직 ...
+            // 무한 맵 (배경) 스크롤 로직
             // 배경은 세상의 중심(0,0)에 가만히 있고 카메라만 움직이게
             background.SetCameraPos(camPos.x, camPos.y);
             background.Update(dt);
 
-            // 자동 유도 미사일 발사 로직
-            shootTimer += dt;
-            if (shootTimer >= shootInterval)
-            {
-                shootTimer = 0.0f; // 타이머 초기화
+            // 무기 공격 쿨타임 로직
+            attackTimer += dt;
 
-                // 배열에서 isDead된 미사일을 하나 찾아서 발사
-                for (int i = 0; i < MAX_BULLETS; i++)
+            if (attackTimer >= attackCooldown)
+            {
+                attackTimer = 0.0f; // 쿨타임 리셋
+
+                // 근접 공격
+                if (selectedWeapon == 0)
                 {
-                    if (bullets[i].isDead)
+                    // 플레이어가 보는 방향 (isFlipped)에 따라 이펙트 위치 결정
+                    float dir = player.GetIsFlipped() ? -1.0f : 1.0f;
+                    float attackX = pPos.x + (0.2f * dir);
+
+                    // 이펙트 생성
+                    for (int i = 0; i < MAX_EFFECTS; i++)
                     {
-                        bullets[i].isDead = false;
-                        bullets[i].SetPosition(player.GetPosition().x, player.GetPosition().y); // 플레이어 위치에서 스폰
-                        break;
+                        if (meleeEffects[i].isDead)
+                        {
+                            meleeEffects[i].isDead = false;
+                            meleeEffects[i].SetPosition(attackX, pPos.y);
+                            meleeEffects[i].SetFlipped(player.GetIsFlipped());
+                            break;
+                        }
+                    }
+
+                    // 데미지 판정 (앞쪽 네모 박스 안의 적 타격 - 범위 축소 적용)
+                    for (int i = 0; i < ENEMY_COUNT; i++)
+                    {
+                        if (enemies[i].isDead) continue;
+
+                        float ex = enemies[i].GetPosition().x;
+                        float ey = enemies[i].GetPosition().y;
+
+                        // 방향이 맞고 거리가 가까우면 hit
+                        if (((dir > 0 && ex > pPos.x) || (dir < 0 && ex < pPos.x)) && abs(ex - pPos.x) < 0.5f && abs(ey - pPos.y) < 0.3f)
+                        {
+                            // 기본 15 데미지에 -1 ~ +1 랜덤 오차 적용 (즉 14, 15, 16 중 하나가 뜸)
+                            int randomDmg = 15 + (rand() % 3 - 1);
+                            enemies[i].hp -= (float)randomDmg;
+
+                            // 데미지 텍스트 팝업 띄우기
+                            for (int k = 0; k < MAX_DMG_TEXTS; k++)
+                            {
+                                if (dmgTexts[k].isDead)
+                                {
+                                    dmgTexts[k].isDead = false;
+                                    dmgTexts[k].lifeTime = 0.0f;
+                                    dmgTexts[k].SetPosition(ex, ey + 0.1f);
+
+                                    // 고정 숫자 대신 방금 뽑은 랜덤 데미지를 출력
+                                    dmgTexts[k].SetFrame(randomDmg % 10);
+                                    break;
+                                }
+                            }
+
+                            // 적이 죽었다면 사망 처리 및 경험치 젬 드롭
+                            if (enemies[i].hp <= 0.0f)
+                            {
+                                enemies[i].isDead = true;
+
+                                if (enemies[i].enemyType == 6)
+                                {
+                                    currentState = GameState::CLEAR;
+                                }
+
+                                for (int g = 0; g < MAX_GEMS; g++)
+                                {
+                                    if (gems[g].isDead)
+                                    {
+                                        gems[g].isDead = false;
+                                        gems[g].SetPosition(enemies[i].GetPosition().x, enemies[i].GetPosition().y);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                else if (selectedWeapon == 1)   // 총 (유도탄)
+                {
+                    // 배열에서 isDead된 미사일을 하나 찾아서 발사
+                    for (int i = 0; i < MAX_BULLETS; i++)
+                    {
+                        if (bullets[i].isDead)
+                        {
+                            bullets[i].isDead = false;
+                            bullets[i].lifeTime = 0.0f; // 쏠 때마다 수명을 0으로 새롭게 세팅
+                            bullets[i].SetPosition(pPos.x, pPos.y); // 플레이어 위치에서 스폰
+                            break;
+                        }
+                    }
+                }
+                else if (selectedWeapon == 2)   // 오라 (주변 공격)
+                {
+                    // 쿨타임이 돌 때마다 오라가 잠깐 켜졌다가 꺼짐 (지속 데미지)
+                    isAuraActive = true;
+                }
+            }
+
+            // 오라가 켜져 있을 때 (플레이어 따라다니며 닿는 적 피격)
+            if (selectedWeapon == 2 && isAuraActive)
+            {
+                auraEffect.SetPosition(pPos.x, pPos.y);
+                auraEffect.SetCameraPos(camPos.x, camPos.y);
+                auraEffect.Update(dt); // 빙글빙글 돌릴 수 있음
+
+                // 텍스트 폭주를 막기 위한 틱 타이머
+                static float auraTextTimer = 0.0f;
+                auraTextTimer += dt;
+                bool shouldPopText = false;
+
+                if (auraTextTimer >= 0.2f)
+                {
+                    shouldPopText = true;
+                    auraTextTimer = 0.0f;
+                }
+
+                for (int i = 0; i < ENEMY_COUNT; i++)
+                {
+                    if (enemies[i].isDead) continue;
+
+                    float dx = enemies[i].GetPosition().x - pPos.x;
+                    float dy = enemies[i].GetPosition().y - pPos.y;
+
+                    if (sqrt(dx * dx + dy * dy) < auraRadius)
+                    {
+                        // 데미지는 매 프레임 부드럽게 들어감
+                        enemies[i].hp -= 15.0f * dt;
+
+                        // 틱 타이머가 허락할 때만 텍스트 팝업
+                        if (shouldPopText)
+                        {
+                            for (int k = 0; k < MAX_DMG_TEXTS; k++)
+                            {
+                                if (dmgTexts[k].isDead)
+                                {
+                                    dmgTexts[k].isDead = false;
+                                    dmgTexts[k].lifeTime = 0.0f;
+                                    dmgTexts[k].SetPosition(enemies[i].GetPosition().x, enemies[i].GetPosition().y + 0.1f);
+
+                                    // 🌟 [수정] 3 ~ 4 중 하나가 랜덤으로 뜨도록 설정 (기본 데미지가 15로 올랐으므로 숫자를 조금 더 크게 표시)
+                                    int randomAuraDmg = 3 + (rand() % 2);
+                                    dmgTexts[k].SetFrame(randomAuraDmg);
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 체력이 0 이하가 되면 죽음 처리 및 젬 드롭
+                        if (enemies[i].hp <= 0.0f)
+                        {
+                            enemies[i].isDead = true;
+
+                            if (enemies[i].enemyType == 6)
+                            {
+                                currentState = GameState::CLEAR;
+                            }
+
+                            for (int g = 0; g < MAX_GEMS; g++)
+                            {
+                                if (gems[g].isDead)
+                                {
+                                    gems[g].isDead = false;
+                                    gems[g].SetPosition(enemies[i].GetPosition().x, enemies[i].GetPosition().y);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 0.5초 켜져있다가 꺼짐 (나중에 업그레이드로 무한 지속 가능)
+                if (attackTimer > 0.5f)
+                {
+                    isAuraActive = false;
+                }
+            }
+
+            // 살아있는 이펙트들 업데이트
+            for (int i = 0; i < MAX_EFFECTS; i++)
+            {
+                meleeEffects[i].SetCameraPos(camPos.x, camPos.y);
+                meleeEffects[i].Update(dt);
+
+                hitEffects[i].SetCameraPos(camPos.x, camPos.y);
+                hitEffects[i].Update(dt);
             }
 
             // 살아 있는 미사일들 업데이트, 젬과 데미지 생성
@@ -737,10 +966,16 @@ public:
                 for (int j = 0; j < ENEMY_COUNT; j++)
                 {
                     if (enemies[j].isDead) continue;
+
                     float dx = enemies[j].GetPosition().x - bullets[i].GetPosition().x;
                     float dy = enemies[j].GetPosition().y - bullets[i].GetPosition().y;
                     float dist = sqrt((dx * dx) + (dy * dy));
-                    if (dist < minDist) { minDist = dist; targetIdx = j; }
+
+                    if (dist < minDist)
+                    {
+                        minDist = dist;
+                        targetIdx = j;
+                    }
                 }
 
                 // 날아가기 및 명중 처리
@@ -758,10 +993,24 @@ public:
 
                     // 적중
                     float hitRadius = 0.08f;
+
                     if (dist < hitRadius)
                     {
-                        enemies[targetIdx].hp -= bullets[i].damage;
+                        // 총알 기본 데미지에 -1 ~ +1 랜덤 오차 적용 (예: 데미지가 5라면 4, 5, 6 중 하나가 적용됨)
+                        int randomDmg = (int)bullets[i].damage + (rand() % 3 - 1);
+                        enemies[targetIdx].hp -= (float)randomDmg;                       
                         bullets[i].isDead = true;
+
+                        // 총알 피격 이펙트 띄우기
+                        for (int k = 0; k < MAX_EFFECTS; k++)
+                        {
+                            if (hitEffects[k].isDead)
+                            {
+                                hitEffects[k].isDead = false;
+                                hitEffects[k].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y);
+                                break;
+                            }
+                        }
 
                         // 데미지 텍스트 팝업 띄우기
                         for (int k = 0; k < MAX_DMG_TEXTS; k++)
@@ -772,11 +1021,8 @@ public:
                                 dmgTexts[k].lifeTime = 0.0f;
                                 dmgTexts[k].SetPosition(enemies[targetIdx].GetPosition().x, enemies[targetIdx].GetPosition().y + 0.1f);
 
-                                // 15 데미지면 일단 '5' (프레임 번호 5)를 띄우게 만듦
-                                // 한 자릿수만 띄울 수 있으므로 임시로 1의 자리를 구해서 띄움
-                                int dmgValue = (int)bullets[i].damage; // 15
-                                dmgTexts[k].SetFrame(dmgValue % 10);   // 15 % 10 = 5번 프레임(숫자 5)
-
+                                // 무조건 5가 아니라, 방금 계산된 랜덤 데미지 숫자를 띄움
+                                dmgTexts[k].SetFrame(randomDmg % 10);
                                 break;
                             }
                         }
@@ -812,8 +1058,101 @@ public:
                 bullets[i].Update(dt);
             }
 
-            // Enemy 이동 및 Enemy vs Enemy 충돌 검사
-            playerPos = player.GetPosition(); // 갱신된 플레이어 위치 가져오기
+            // 20분 (1200초) 웨이브 & 보스 매니저
+            spawnTimer += dt;
+            int currentMinute = (int)(gameTimer / 60.0f);
+            float spawnInterval = max(0.3f, 2.5f - (currentMinute * 0.15f));
+
+            auto SpawnEnemy = [&](int targetType, float x, float y)
+                {
+                    int startIndex = rand() % ENEMY_COUNT;
+
+                    for (int i = 0; i < ENEMY_COUNT; i++)
+                    {
+                        int idx = (startIndex + i) % ENEMY_COUNT;
+
+                        if (enemies[idx].isDead && enemies[idx].enemyType == targetType)
+                        {
+                            enemies[idx].InitStats();
+
+                            // 시간에 따른 체력 뻥튀기 로직 (1초마다 체력 0.1씩 증가)
+                            // 10분이 지나면 (600초 * 0.1 = 60) 기본 몹 체력이 30에서 90으로 뛰어오름
+                            float hpBonus = gameTimer * 0.1f;
+                            enemies[idx].maxHp += hpBonus;
+                            enemies[idx].hp = enemies[idx].maxHp;
+
+                            enemies[idx].SetPosition(x, y);
+                            break;
+                        }
+                    }
+                };
+
+            // 보스 스폰 로직 (5, 10, 15분엔 중간 보스 / 19분에 최종 보스)
+            if (currentMinute == 5 && !isBossSpawned[0])
+            {
+                SpawnEnemy(3, pPos.x + 2.5f, pPos.y);
+                isBossSpawned[0] = true;
+            }
+            else if (currentMinute == 10 && !isBossSpawned[1])
+            {
+                SpawnEnemy(4, pPos.x - 2.5f, pPos.y);
+                isBossSpawned[1] = true;
+            }
+            else if (currentMinute == 15 && !isBossSpawned[2])
+            {
+                SpawnEnemy(5, pPos.x, pPos.y + 2.5f);
+                isBossSpawned[2] = true;
+            }
+            else if (currentMinute >= 19 && !isBossSpawned[3])
+            {
+                SpawnEnemy(6, pPos.x, pPos.y - 2.5f);
+                isBossSpawned[3] = true;
+            }
+
+            // 20분 스케일 일반 웨이브 스폰 로직
+            if (spawnTimer >= spawnInterval)
+            {
+                spawnTimer = 0.0f;
+
+                if (currentMinute < 5)
+                {
+                    for (int k = 0; k < 6; k++)
+                    {
+                        float angle = k * (XM_2PI / 6.0f);
+                        SpawnEnemy(0, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
+                    }
+                }
+                else if (currentMinute < 10)
+                {
+                    for (int k = 0; k < 6; k++)
+                    {
+                        float offsetX = (pPos.x - 2.0f) + (k * 0.8f);
+                        SpawnEnemy(1, offsetX, pPos.y + 1.5f);
+                        SpawnEnemy(1, offsetX, pPos.y - 1.5f);
+                    }
+                }
+                else if (currentMinute < 15)
+                {
+                    SpawnEnemy(2, pPos.x + 1.5f, pPos.y);
+                    SpawnEnemy(2, pPos.x - 1.5f, pPos.y);
+                    SpawnEnemy(2, pPos.x, pPos.y + 1.5f);
+                    SpawnEnemy(2, pPos.x, pPos.y - 1.5f);
+
+                    for (int k = 0; k < 5; k++)
+                    {
+                        float angle = k * (XM_2PI / 5.0f) + 0.5f;
+                        SpawnEnemy(1, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
+                    }
+                }
+                else
+                {
+                    for (int k = 0; k < 10; k++)
+                    {
+                        float angle = k * (XM_2PI / 10.0f);
+                        SpawnEnemy(k % 3, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
+                    }
+                }
+            }
 
             // 모든 Enemy가 플레이어의 위치를 향해 돌격
             for (int i = 0; i < ENEMY_COUNT; i++)
@@ -822,7 +1161,7 @@ public:
                 if (enemies[i].isDead) continue;
 
                 enemies[i].SetCameraPos(camPos.x, camPos.y); // 적에게도 카메라 위치 전달
-                enemies[i].Update(dt, playerPos);
+                enemies[i].Update(dt, pPos);
             }
 
             // 적들 끼리 겹치지 않게 서로 밀어내기 (군집 형성의 핵심)
@@ -870,6 +1209,7 @@ public:
             for (int i = 0; i < MAX_GEMS; i++)
             {
                 if (gems[i].isDead) continue;
+
                 gems[i].SetCameraPos(camPos.x, camPos.y);
                 gems[i].Update(dt, player);
             }
@@ -878,6 +1218,7 @@ public:
             for (int i = 0; i < MAX_DMG_TEXTS; i++)
             {
                 if (dmgTexts[i].isDead) continue;
+
                 dmgTexts[i].SetCameraPos(camPos.x, camPos.y);
                 dmgTexts[i].Update(dt);
             }
@@ -885,27 +1226,34 @@ public:
             // HP바 크기와 위치 실시간 계산
             float barWidth = 0.12f;      // 체력바 전체 가로길이
             float barHeight = 0.02f;    // 체력바 세로 두께
-            float hpY = player.GetPosition().y - 0.25f; // 플레이어 위치보다 살짝 아래
+            float hpY = pPos.y - 0.25f; // 플레이어 위치보다 살짝 아래
 
-            hpBarBg.SetPosition(player.GetPosition().x, hpY); // 위치 세팅
+            hpBarBg.SetPosition(pPos.x, hpY); // 위치 세팅
             hpBarBg.SetCameraPos(camPos.x, camPos.y);
             hpBarBg.SetScale(barWidth, barHeight);
             hpBarBg.Update(0.0f); // 애니메이션 없으므로 0.0f 전달
 
             // 체력 게이지(초록 줄) 계산
             float hpRatio = player.hp / player.maxHp;
+
             if (hpRatio < 0.0f) hpRatio = 0.0f; // 마이너스 방지
 
             float currentWidth = barWidth * hpRatio; // 현재 체력만큼 깎인 길이
             float offset = (barWidth - currentWidth) * 0.5f;
 
-            hpBarFill.SetPosition(player.GetPosition().x - offset, hpY); // 위치 세팅
+            hpBarFill.SetPosition(pPos.x - offset, hpY); // 위치 세팅
             hpBarFill.SetCameraPos(camPos.x, camPos.y);
             hpBarFill.SetScale(currentWidth, barHeight);
 
             // 피가 30% 이하면 빨간색으로 변경
-            if (hpRatio <= 0.3f) hpBarFill.SetTintColor(1.0f, 0.0f, 0.0f);
-            else hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f);
+            if (hpRatio <= 0.3f)
+            {
+                hpBarFill.SetTintColor(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                hpBarFill.SetTintColor(0.0f, 1.0f, 0.0f);
+            }
 
             hpBarFill.Update(0.0f);
 
@@ -920,6 +1268,7 @@ public:
             expBarBg.Update(0.0f);
 
             float expRatio = player.exp / player.maxExp;
+
             if (expRatio > 1.0f) expRatio = 1.0f;
 
             float currentExpWidth = expBarWidth * expRatio;
@@ -962,13 +1311,13 @@ public:
             timerTexts[3].SetFrame(s2);
 
             // 폰트 간격 설정 (가운데를 살짝 띄워서 ':' 역할을 대신함)
-            float spacing = 0.04f;
+            float spacingTime = 0.04f;
             float gap = 0.03f; // 콜론(:)이 들어갈 빈 공간
 
-            timerTexts[0].SetPosition(camPos.x - spacing - gap, uiY);
+            timerTexts[0].SetPosition(camPos.x - spacingTime - gap, uiY);
             timerTexts[1].SetPosition(camPos.x - gap, uiY);
             timerTexts[2].SetPosition(camPos.x + gap, uiY);
-            timerTexts[3].SetPosition(camPos.x + spacing + gap, uiY);
+            timerTexts[3].SetPosition(camPos.x + spacingTime + gap, uiY);
 
             for (int i = 0; i < 4; i++)
             {
@@ -1002,14 +1351,6 @@ public:
         }
 
         // 게임 오버 / 클리어 UI 위치 동기화 (항상 화면 정중앙)
-        // 현재 카메라 위치를 가져옴
-        XMFLOAT2 camPos = { player.GetPosition().x, player.GetPosition().y };
-        float camLimit = 4.0f;
-        if (camPos.x > camLimit)  camPos.x = camLimit;
-        if (camPos.x < -camLimit) camPos.x = -camLimit;
-        if (camPos.y > camLimit)  camPos.y = camLimit;
-        if (camPos.y < -camLimit) camPos.y = -camLimit;
-
         // 카메라 위치에 정확히 겹치게 띄우고 애니메이션을 재생
         if (currentState == GameState::GAME_OVER)
         {
@@ -1034,9 +1375,7 @@ public:
         commandAllocator->Reset();
         commandList->Reset(commandAllocator.Get(), nullptr);
 
-        // Resource Barrier (상태 변화)
-        // 현재 도화지는 유저에게 보여주기 위한 출력용 (PRESENT) 상태
-        // 출력 중인 도화지에는 그림을 그릴 수 없으니 그리기용 (RENDER_TARGET)으로 상태를 변경
+        // Resource Barrier (상태 변화: 출력용 -> 그리기용)
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Transition.pResource = renderTargets[frameIndex].Get();
@@ -1046,100 +1385,99 @@ public:
         commandList->ResourceBarrier(1, &barrier);
 
         // 화면 칠하기 (파란색)
-        // 우리가 쓸 도화지의 목차 주소를 가져옴
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtvHandle.ptr += frameIndex * rtvDescriptorSize;
-
-        // 색상 지정 (R, G, B, A)
         const float clearColor[] = { 0.1f, 0.1f, 0.3f, 1.0f };
         commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
-        // Output Merger 세팅: 앞으로 그릴 모든 Draw는 이 rtvHandle에 올림
+        // Output Merger 및 파이프라인 세팅
         commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
-
-        // Draw Call 렌더링
-        // ViewPort와 Scissor Rect 설정
-        // 도화지(800x600) 중에서 어느 영역에 그림을 그릴지 GPU에게 알려주는 영역 설정
         D3D12_VIEWPORT viewport = { 0.0f, 0.0f, 1280.0f, 720.0f, 0.0f, 1.0f };
         D3D12_RECT scissorRect = { 0, 0, 1280, 720 };
         commandList->RSSetViewports(1, &viewport);
         commandList->RSSetScissorRects(1, &scissorRect);
-
-        // PSO와 Root Signature 적용
         commandList->SetGraphicsRootSignature(rootSignature.Get());
-        // 아까 복사해둔 상수 버퍼 데이터(위치 정보)를 이 파이프라인에 묶음
         commandList->SetPipelineState(pipelineState.Get());
-
-        // 점들을 어떻게 이을지 결정 (삼각형 단위로 잇기 위해 TRIANGLELIST)
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        // 정점 버퍼 꺼내오기
         commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 
-        // 배경 맵을 가장 먼저 그림 (캐릭터들이 파묻히지 않게 방지)
+        // [Layer 1] 배경 맵 (가장 밑바닥)
         background.Render(commandList.Get());
 
-        // 살아있는 적만 그리기 (죽으면 자연스럽게 화면에서 사라짐)
-        for (int i = 0; i < ENEMY_COUNT; i++)
+        // [Layer 2] 경험치 젬 (바닥에 떨어져 있음)
+        for (int i = 0; i < MAX_GEMS; i++)
         {
-            if (!enemies[i].isDead)
-            {
-                enemies[i].Render(commandList.Get());
-            }
+            if (!gems[i].isDead) gems[i].Render(commandList.Get());
         }
 
-        // 경험치 젬 그리기 (플레이어보다 바닥에)
-        for (int i = 0; i < MAX_GEMS; i++)
-            if (!gems[i].isDead) gems[i].Render(commandList.Get());
+        // [Layer 3] 전기 오라 이펙트 (적과 플레이어 발밑에 깔리게 연출)
+        if (currentState == GameState::PLAY && selectedWeapon == 2 && isAuraActive)
+        {
+            auraEffect.Render(commandList.Get());
+        }
 
-        // 플레이어 객체 스스로 렌더링 하도록 명령서를 넘겨줌
+        // [Layer 4] 살아있는 적군들
+        for (int i = 0; i < ENEMY_COUNT; i++)
+        {
+            if (!enemies[i].isDead) enemies[i].Render(commandList.Get());
+        }
+
+        // [Layer 5] 플레이어 (항상 적군보다 위에 보이게)
         player.Render(commandList.Get());
 
-        // 발 밑에 체력바 덧그리기 (배경, 초록색 게이지 순서)
+        // [Layer 6] 날아다니는 미사일 (캐릭터들 위로 날아감)
+        for (int i = 0; i < MAX_BULLETS; i++)
+        {
+            if (!bullets[i].isDead) bullets[i].Render(commandList.Get());
+        }
+
+        // [Layer 7] 타격 이펙트
+        for (int i = 0; i < MAX_EFFECTS; i++)
+        {
+            if (!meleeEffects[i].isDead) meleeEffects[i].Render(commandList.Get());
+            if (!hitEffects[i].isDead) hitEffects[i].Render(commandList.Get());
+        }
+
+        // UI 레이어 (게임 화면과 무관하게 항상 최상단에 뜨는 요소들)
+
+        // 플레이어 체력바 (발 밑)
         hpBarBg.Render(commandList.Get());
         hpBarFill.Render(commandList.Get());
 
-        // 날아다니는 미사일들 맨 위에 그리기
-        for (int i = 0; i < MAX_BULLETS; i++)
+        // 피격 데미지 텍스트 (체력바 위로 올라가게)
+        for (int i = 0; i < MAX_DMG_TEXTS; i++)
         {
-            if (!bullets[i].isDead)
-            {
-                bullets[i].Render(commandList.Get());
-            }
+            if (!dmgTexts[i].isDead) dmgTexts[i].Render(commandList.Get());
         }
 
-        // 데미지 텍스트 그리기 (가장 위에)
-        for (int i = 0; i < MAX_DMG_TEXTS; i++)
-            if (!dmgTexts[i].isDead) dmgTexts[i].Render(commandList.Get());
-
-        // EXP 바 그리기 (화면 UI 최상단)
+        // 상단 시스템 UI (경험치바, 레벨, 타이머)
         expBarBg.Render(commandList.Get());
         expBarFill.Render(commandList.Get());
 
-        // 레벨 UI 그리기 (가장 마지막에 그려서 맨 위에 덮기)
         levelBg.Render(commandList.Get());
         levelText.Render(commandList.Get());
 
-        // 타이머 그리기
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 4; i++) timerTexts[i].Render(commandList.Get());
+        for (int i = 0; i < 2; i++) timerColonBg[i].Render(commandList.Get());
+        for (int i = 0; i < 2; i++) timerColon[i].Render(commandList.Get());
+
+        // [Layer 8] 무기 선택 카드 (게임 UI를 가리면서 화면 정중앙에 뜸)
+        if (currentState == GameState::WEAPON_SELECT)
         {
-            timerTexts[i].Render(commandList.Get());
+            // 배경 카드를 먼저 그리고
+            for (int i = 0; i < 3; i++)
+            {
+                weaponCards[i].Render(commandList.Get());
+            }
+
+            // 그 위에 아이콘을 덮어 씌움
+            for (int i = 0; i < 3; i++)
+            {
+                weaponIcons[i].Render(commandList.Get());
+            }
         }
 
-        // 콜론 (:) 그리기 (레이어링)
-        // 검은색 배경 점 (테두리) 먼저 그리기
-        for (int i = 0; i < 2; i++)
-        {
-            timerColonBg[i].Render(commandList.Get());
-        }
-
-        // 흰색 점 (알맹이) 그 위에 그리기
-        for (int i = 0; i < 2; i++)
-        {
-            timerColon[i].Render(commandList.Get());
-        }
-
-        // 시스템 UI 그리기
+        // [Layer 9] 시스템 메시지 UI (가장 마지막에 덮음)
         if (currentState == GameState::GAME_OVER)
         {
             gameOverUI.Render(commandList.Get());
@@ -1149,24 +1487,18 @@ public:
             clearUI.Render(commandList.Get());
         }
 
-        // Resource Barrier 복구
-        // 다 그렸으니 다시 유저에게 보여주기 위해 출력용 (PRESENT) 상태로 되돌림
+        // Resource Barrier 복구 (그리기용 -> 출력용)
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-
         commandList->ResourceBarrier(1, &barrier);
 
-        // 명령 기록 끝
+        // 명령 기록 끝 & 실행
         commandList->Close();
-
-        // 작성한 List를 GPU의 대기열(Queue)에 제출
         ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
         commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
-        // 스왑 체인 교체 (Flip) - 도화지를 휙 바꿔치기 해서 유저에게 보여줌
+        // 스왑 체인 교체 & 동기화
         swapChain->Present(1, 0);
-
-        // 동기화 (GPU가 다 그릴 때까지 CPU를 기다리게 함)
         WaitForGPU();
     }
 
