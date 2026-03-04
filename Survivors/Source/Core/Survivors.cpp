@@ -30,6 +30,7 @@ public:
         TITLE,          // 메인 타이틀 씬
         WEAPON_SELECT,  // 처음 시작 시 무기 고르는 상태
         PLAY,           // 정상 플레이 중
+        LEVEL_UP,       // 레벨업 선택 창 상태
         PAUSE,          // ESC 일시 정지, 설정 창
         GAME_OVER,      // HP 0 (사망)
         CLEAR,          // 생존 성공
@@ -52,6 +53,24 @@ public:
     Button btnPauseSetting;     // 설정 버튼
     Button btnPauseExit;        // 종료 버튼
 
+    // 결과 창 (GAME_OVER / CLEAR) 전용 객체들
+    Button btnRetry;        // 다시 시작 (무기 선택 창으로)
+    Button btnResultMain;   // 메인 타이틀로
+    Button btnResultExit;   // 게임 종료
+
+    GameObject scoreBg;         // score_bg.png
+    GameObject scoreTexts[6];   // 점수 폰트 (최대 6 자리)
+
+    int totalKills = 0;         // 몬스터 누적 처치 수
+
+    // 레벨업 시스템 관련 객체
+    GameObject levelUpBg;
+    Button upgradeCards[3];     // 화면에 띄울 3개의 선택지 카드
+    int cardUpIds[3];           // 각 카드에 어떤 업그레이드인지 저장 (0:HP, 1:SPD, 2:DMG, 3:CDR, 4:AURA)
+
+    // 중복 로딩 방지를 위한 마스터 카드 스킨들 (플라이웨이트 패턴)
+    GameObject cardSkins[5];
+
     // 씬 전환 시 게임 데이터를 싹 초기화해주는 함수
     void ResetGame()
     {
@@ -61,6 +80,7 @@ public:
         player.SetPosition(0.0f, 0.0f);
         gameTimer = 0.0f;
         selectedWeapon = -1;
+        totalKills = 0; // 킬 수 리셋
 
         for (int i = 0; i < ENEMY_COUNT; i++) enemies[i].isDead = true;
         for (int i = 0; i < MAX_BULLETS; i++) bullets[i].isDead = true;
@@ -174,7 +194,7 @@ public:
 
     // 레벨 UI 배경과 레벨 텍스트 선언
     GameObject levelBg;
-    GameObject levelText;
+    GameObject levelTexts[2]; // 10의 자리, 1의 자리
 
     // 타이머 폰트 배열 (MM:SS 4자리)
     GameObject timerTexts[4];
@@ -456,12 +476,15 @@ public:
         levelBg.SetObjectType(0);
 
         // 레벨 숫자 텍스트 (데미지 폰트 재활용)
-        levelText.Initialize(d3dDevice.Get());
-        levelText.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/damage_font.png", 10);
-        levelText.SetScale(0.03f, 0.045f);
-        levelText.SetTintColor(1.0f, 1.0f, 1.0f);
-        levelText.SetObjectType(0);
-        levelText.SetFrameDuration(9999.0f); // 애니메이션 멈춤
+        for (int i = 0; i < 2; i++)
+        {
+            levelTexts[i].Initialize(d3dDevice.Get());
+            levelTexts[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/damage_font.png", 10);
+            levelTexts[i].SetScale(0.03f, 0.045f);
+            levelTexts[i].SetTintColor(1.0f, 1.0f, 1.0f);
+            levelTexts[i].SetObjectType(0);
+            levelTexts[i].SetFrameDuration(9999.0f); // 애니메이션 멈춤
+        }
 
         // 경험치 젬 초기화
         for (int i = 0; i < MAX_GEMS; i++)
@@ -639,6 +662,67 @@ public:
         btnPauseExit.InitScale(0.5f, 0.25f);
         btnPauseExit.SetObjectType(0);
 
+        // 결과 창 (GAME_OVER & CLEAR) 초기화
+        btnRetry.Initialize(d3dDevice.Get());
+        btnRetry.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_retry.png", 1);
+        btnRetry.InitScale(0.6f, 0.2f);
+        btnRetry.SetObjectType(0);
+
+        btnResultMain.Initialize(d3dDevice.Get());
+        btnResultMain.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_main.png", 1);
+        btnResultMain.InitScale(0.6f, 0.2f);
+        btnResultMain.SetObjectType(0);
+
+        btnResultExit.Initialize(d3dDevice.Get());
+        btnResultExit.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/btn_exit.png", 1);
+        btnResultExit.InitScale(0.6f, 0.2f);
+        btnResultExit.SetObjectType(0);
+
+        scoreBg.Initialize(d3dDevice.Get());
+        scoreBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/score_bg.png", 1);
+        scoreBg.SetScale(0.6f, 0.2f); // 버튼 크기와 동일하게 세팅
+        scoreBg.SetObjectType(0);
+
+        // 점수를 표시할 6자리의 숫자 폰트 세팅 (타이머 폰트 재활용)
+        for (int i = 0; i < 6; i++)
+        {
+            scoreTexts[i].Initialize(d3dDevice.Get());
+            scoreTexts[i].LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/Timer_font.png", 10);
+            scoreTexts[i].SetScale(0.04f, 0.06f);
+            scoreTexts[i].SetTintColor(1.0f, 1.0f, 1.0f);
+            scoreTexts[i].SetObjectType(0);
+            scoreTexts[i].SetFrameDuration(9999.0f);
+        }
+
+        // 레벨업 UI 초기화
+        levelUpBg.Initialize(d3dDevice.Get());
+        levelUpBg.LoadTexture(d3dDevice.Get(), commandList.Get(), "Assets/Textures/level_up_bg.png", 1);
+        levelUpBg.SetScale(1.8f, 1.8f);
+        levelUpBg.SetObjectType(0);
+
+        // 업그레이드 카드 스킨들 미리 로드 (0:HP, 1:SPD, 2:DMG, 3:CDR, 4:AURA)
+        const char* cardPaths[] = {
+            "Assets/Textures/up_hp.png", 
+            "Assets/Textures/up_speed.png",
+            "Assets/Textures/up_damage.png", 
+            "Assets/Textures/up_cooldown.png", 
+            "Assets/Textures/up_aura.png"
+        };
+
+        for (int i = 0; i < 5; i++) 
+        {
+            cardSkins[i].Initialize(d3dDevice.Get());
+            cardSkins[i].LoadTexture(d3dDevice.Get(), commandList.Get(), cardPaths[i], 1);
+        }
+
+        // 실제 화면에 뜰 버튼 카드 3개 설정
+        for (int i = 0; i < 3; i++) 
+        {
+            upgradeCards[i].Initialize(d3dDevice.Get());
+            upgradeCards[i].InitScale(0.45f, 1.0f); // 카드 형태의 버튼
+            upgradeCards[i].SetObjectType(0);
+        }
+
         // 모든 텍스처 복사 명령 기록이 끝났으니 Close() 하고 한 방에 실행
         commandList->Close();
         ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
@@ -649,6 +733,20 @@ public:
 
         // 시간 관리자 시작
         timeMgr.Initialize();
+
+        // 사운드 시스템 초기화 및 WAV 파일 로드
+        g_SoundMgr.Initialize();
+
+        g_SoundMgr.LoadWAV("bgm", "Assets/Sounds/bgm.wav");
+        g_SoundMgr.LoadWAV("hover", "Assets/Sounds/hover.wav");
+        g_SoundMgr.LoadWAV("click", "Assets/Sounds/click.wav");
+        g_SoundMgr.LoadWAV("attack_melee", "Assets/Sounds/attack_melee.wav");
+        g_SoundMgr.LoadWAV("attack_bullet", "Assets/Sounds/attack_bullet.wav");
+        g_SoundMgr.LoadWAV("attack_aura", "Assets/Sounds/attack_aura.wav");
+        g_SoundMgr.LoadWAV("levelup", "Assets/Sounds/levelup.wav");
+
+        // 게임 켜지자마자 배경음악 무한 루프 재생!
+        g_SoundMgr.Play("bgm", true, 0.4f);
     }
 
     // 매 프레임 위치를 계산하고 GPU로 데이터를 쏴주는 함수
@@ -711,6 +809,7 @@ public:
 
             if (btnStart.UpdateButton(mouseX, mouseY, isMouseDown))
             {
+                g_SoundMgr.Play("click");
                 ResetGame();
                 currentState = GameState::WEAPON_SELECT;
                 Sleep(200);
@@ -901,6 +1000,8 @@ public:
                 // 근접 공격
                 if (selectedWeapon == 0)
                 {
+                    g_SoundMgr.Play("attack_melee");
+
                     // 플레이어가 보는 방향 (isFlipped)에 따라 이펙트 위치 결정
                     float dir = player.GetIsFlipped() ? -1.0f : 1.0f;
                     float attackX = pPos.x + (0.2f * dir);
@@ -929,7 +1030,8 @@ public:
                         if (((dir > 0 && ex > pPos.x) || (dir < 0 && ex < pPos.x)) && abs(ex - pPos.x) < 0.5f && abs(ey - pPos.y) < 0.3f)
                         {
                             // 기본 15 데미지에 -1 ~ +1 랜덤 오차 적용 (즉 14, 15, 16 중 하나가 뜸)
-                            int randomDmg = 15 + (rand() % 3 - 1);
+                            int baseDmg = (int)(15.0f * player.damageMultiplier);
+                            int randomDmg = baseDmg + (rand() % 3 - 1);
                             enemies[i].hp -= (float)randomDmg;
 
                             // 데미지 텍스트 팝업 띄우기
@@ -972,6 +1074,8 @@ public:
                 }
                 else if (selectedWeapon == 1)   // 총 (유도탄)
                 {
+                    g_SoundMgr.Play("attack_bullet");
+
                     // 배열에서 isDead된 미사일을 하나 찾아서 발사
                     for (int i = 0; i < MAX_BULLETS; i++)
                     {
@@ -986,6 +1090,8 @@ public:
                 }
                 else if (selectedWeapon == 2)   // 오라 (주변 공격)
                 {
+                    g_SoundMgr.Play("attack_aura");
+
                     // 쿨타임이 돌 때마다 오라가 잠깐 켜졌다가 꺼짐 (지속 데미지)
                     isAuraActive = true;
                 }
@@ -1032,8 +1138,9 @@ public:
                                     dmgTexts[k].lifeTime = 0.0f;
                                     dmgTexts[k].SetPosition(enemies[i].GetPosition().x, enemies[i].GetPosition().y + 0.1f);
 
-                                    // 🌟 [수정] 3 ~ 4 중 하나가 랜덤으로 뜨도록 설정 (기본 데미지가 15로 올랐으므로 숫자를 조금 더 크게 표시)
-                                    int randomAuraDmg = 3 + (rand() % 2);
+                                    // 3 ~ 4 중 하나가 랜덤으로 뜨도록 설정 (기본 데미지가 15로 올랐으므로 숫자를 조금 더 크게 표시)
+                                    int baseAuraDmg = (int)(3.0f * player.damageMultiplier);
+                                    int randomAuraDmg = baseAuraDmg + (rand() % 2);
                                     dmgTexts[k].SetFrame(randomAuraDmg);
                                     break;
                                 }
@@ -1044,6 +1151,7 @@ public:
                         if (enemies[i].hp <= 0.0f)
                         {
                             enemies[i].isDead = true;
+                            totalKills++;   // 몬스터 잡을 때마다 킬 수 1 증가
 
                             if (enemies[i].enemyType == 6)
                             {
@@ -1116,7 +1224,7 @@ public:
                     if (dist > 0.0f)
                     {
                         bullets[i].SetPosition(bullets[i].GetPosition().x + (dx / dist) * bullets[i].speed * dt,
-                            bullets[i].GetPosition().y + (dy / dist) * bullets[i].speed * dt);
+                        bullets[i].GetPosition().y + (dy / dist) * bullets[i].speed * dt);
                     }
 
                     // 적중
@@ -1125,8 +1233,9 @@ public:
                     if (dist < hitRadius)
                     {
                         // 총알 기본 데미지에 -1 ~ +1 랜덤 오차 적용 (예: 데미지가 5라면 4, 5, 6 중 하나가 적용됨)
-                        int randomDmg = (int)bullets[i].damage + (rand() % 3 - 1);
-                        enemies[targetIdx].hp -= (float)randomDmg;                       
+                        int baseDmg = (int)(bullets[i].damage * player.damageMultiplier);
+                        int randomDmg = baseDmg + (rand() % 3 - 1);
+                        enemies[targetIdx].hp -= (float)randomDmg;
                         bullets[i].isDead = true;
 
                         // 총알 피격 이펙트 띄우기
@@ -1186,10 +1295,10 @@ public:
                 bullets[i].Update(dt);
             }
 
-            // 20분 (1200초) 웨이브 & 보스 매니저
+            // 5분 (300초) 웨이브 & 보스 매니저
             spawnTimer += dt;
             int currentMinute = (int)(gameTimer / 60.0f);
-            float spawnInterval = max(0.3f, 2.5f - (currentMinute * 0.15f));
+            float spawnInterval = max(0.15f, 2.0f - (currentMinute * 0.4f));
 
             auto SpawnEnemy = [&](int targetType, float x, float y)
                 {
@@ -1203,8 +1312,8 @@ public:
                         {
                             enemies[idx].InitStats();
 
-                            // 시간에 따른 체력 뻥튀기 로직 (1초마다 체력 0.1씩 증가)
-                            // 10분이 지나면 (600초 * 0.1 = 60) 기본 몹 체력이 30에서 90으로 뛰어오름
+                            // 시간에 따른 체력 뻥튀기 로직 (1초마다 체력 0.4씩 증가)
+                            // (5분이 되면 기본몹 체력이 30 + 120 = 150으로 상승)
                             float hpBonus = gameTimer * 0.1f;
                             enemies[idx].maxHp += hpBonus;
                             enemies[idx].hp = enemies[idx].maxHp;
@@ -1215,68 +1324,62 @@ public:
                     }
                 };
 
-            // 보스 스폰 로직 (5, 10, 15분엔 중간 보스 / 19분에 최종 보스)
-            if (currentMinute == 5 && !isBossSpawned[0])
+            // 보스 스폰 로직 (1분, 2분, 3분에 중간 보스 / 4분 30초에 최종 보스)
+            if (currentMinute == 1 && !isBossSpawned[0])
             {
-                SpawnEnemy(3, pPos.x + 2.5f, pPos.y);
-                isBossSpawned[0] = true;
+                SpawnEnemy(3, pPos.x + 2.5f, pPos.y); isBossSpawned[0] = true;
             }
-            else if (currentMinute == 10 && !isBossSpawned[1])
+            else if (currentMinute == 2 && !isBossSpawned[1])
             {
-                SpawnEnemy(4, pPos.x - 2.5f, pPos.y);
-                isBossSpawned[1] = true;
+                SpawnEnemy(4, pPos.x - 2.5f, pPos.y); isBossSpawned[1] = true;
             }
-            else if (currentMinute == 15 && !isBossSpawned[2])
+            else if (currentMinute == 3 && !isBossSpawned[2])
             {
-                SpawnEnemy(5, pPos.x, pPos.y + 2.5f);
-                isBossSpawned[2] = true;
+                SpawnEnemy(5, pPos.x, pPos.y + 2.5f); isBossSpawned[2] = true;
             }
-            else if (currentMinute >= 19 && !isBossSpawned[3])
+            else if (gameTimer >= 270.0f && !isBossSpawned[3]) // 270초 = 4분 30초
             {
-                SpawnEnemy(6, pPos.x, pPos.y - 2.5f);
-                isBossSpawned[3] = true;
+                SpawnEnemy(6, pPos.x, pPos.y - 2.5f); isBossSpawned[3] = true;
             }
 
-            // 20분 스케일 일반 웨이브 스폰 로직
+            // 일반 웨이브 스폰 로직 (분 단위로 패턴 변경)
             if (spawnTimer >= spawnInterval)
             {
                 spawnTimer = 0.0f;
 
-                if (currentMinute < 5)
+                if (currentMinute < 1) // 0 ~ 1분: 몸풀기 원형 포위
                 {
-                    for (int k = 0; k < 6; k++)
+                    for (int k = 0; k < 6; k++) 
                     {
                         float angle = k * (XM_2PI / 6.0f);
                         SpawnEnemy(0, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
                     }
                 }
-                else if (currentMinute < 10)
+                else if (currentMinute < 2) // 1 ~ 2분: 위아래 양각
                 {
-                    for (int k = 0; k < 6; k++)
+                    for (int k = 0; k < 6; k++) 
                     {
                         float offsetX = (pPos.x - 2.0f) + (k * 0.8f);
                         SpawnEnemy(1, offsetX, pPos.y + 1.5f);
                         SpawnEnemy(1, offsetX, pPos.y - 1.5f);
                     }
                 }
-                else if (currentMinute < 15)
+                else if (currentMinute < 3) // 2 ~ 3분: 혼합 난전
                 {
                     SpawnEnemy(2, pPos.x + 1.5f, pPos.y);
                     SpawnEnemy(2, pPos.x - 1.5f, pPos.y);
-                    SpawnEnemy(2, pPos.x, pPos.y + 1.5f);
-                    SpawnEnemy(2, pPos.x, pPos.y - 1.5f);
 
-                    for (int k = 0; k < 5; k++)
+                    for (int k = 0; k < 5; k++) 
                     {
                         float angle = k * (XM_2PI / 5.0f) + 0.5f;
                         SpawnEnemy(1, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
                     }
                 }
-                else
+                else // 3분 이후: 대규모 물량 공세
                 {
-                    for (int k = 0; k < 10; k++)
+                    for (int k = 0; k < 12; k++) 
                     {
-                        float angle = k * (XM_2PI / 10.0f);
+                        float angle = k * (XM_2PI / 12.0f);
                         SpawnEnemy(k % 3, pPos.x + cos(angle) * 1.5f, pPos.y + sin(angle) * 1.5f);
                     }
                 }
@@ -1407,6 +1510,37 @@ public:
             expBarFill.SetScale(currentExpWidth, expBarHeight);
             expBarFill.Update(0.0f);
 
+            // 레벨 업
+            if (player.exp >= player.maxExp)
+            {
+                g_SoundMgr.Play("levelup");
+                player.exp -= player.maxExp; // 남은 경험치 이월
+                player.maxExp *= 1.2f;       // 다음 레벨은 더 어렵게
+                player.level++;
+
+                // 랜덤하게 3가지 업그레이드 아이디 뽑기 (0~4 중 중복 없이)
+                for (int i = 0; i < 3; i++) 
+                {
+                    bool isUnique = false;
+
+                    while (!isUnique) 
+                    {
+                        cardUpIds[i] = rand() % 5;
+                        isUnique = true;
+                        for (int j = 0; j < i; j++) if (cardUpIds[i] == cardUpIds[j]) isUnique = false;
+                    }
+
+                    // 텍스처를 카드 버튼에 입힘
+                    upgradeCards[i].ShareTextureFrom(cardSkins[cardUpIds[i]]);
+                }
+
+                currentState = GameState::LEVEL_UP; // 레벨업 씬으로 전환
+                Sleep(200); // 아주 짧은 딜레이
+
+                return;
+            }
+
+
             // 레벨 UI (우측 상단)
             float uiY = camPos.y + 0.85f; // EXP 바 살짝 아래
             float levelX = camPos.x + 0.8f; // 화면 우측으로 이동
@@ -1415,10 +1549,22 @@ public:
             levelBg.SetCameraPos(camPos.x, camPos.y);
             levelBg.Update(0.0f);
 
-            levelText.SetFrame(player.level % 10);
-            levelText.SetPosition(levelX, uiY);
-            levelText.SetCameraPos(camPos.x, camPos.y);
-            levelText.Update(0.0f);
+            int tens = (player.level / 10) % 10;
+            int units = player.level % 10;
+
+            levelTexts[0].SetFrame(tens);
+            levelTexts[1].SetFrame(units);
+
+            // 두 숫자가 살짝 떨어져 있도록 간격 조절
+            float textSpacing = 0.015f;
+            levelTexts[0].SetPosition(levelX - textSpacing, uiY);
+            levelTexts[1].SetPosition(levelX + textSpacing, uiY);
+
+            for (int i = 0; i < 2; i++)
+            {
+                levelTexts[i].SetCameraPos(camPos.x, camPos.y);
+                levelTexts[i].Update(0.0f);
+            }
 
 
             // 타이머 시스템 (화면 중앙 상단 배치)
@@ -1477,6 +1623,59 @@ public:
                 timerColon[i].Update(0.0f);
             }
         }
+        else if (currentState == GameState::LEVEL_UP)   // LEVEL_UP 선택 씬
+        {
+            float worldMouseX = mouseX + camPos.x;
+            float worldMouseY = mouseY + camPos.y;
+
+            pauseBg.SetPosition(camPos.x, camPos.y);
+            pauseBg.SetCameraPos(camPos.x, camPos.y);
+            pauseBg.Update(0.0f);
+
+            levelUpBg.SetPosition(camPos.x, camPos.y);
+            levelUpBg.SetCameraPos(camPos.x, camPos.y);
+            levelUpBg.Update(0.0f);
+
+            float cardSpacing = 0.55f;
+
+            for (int i = 0; i < 3; i++)
+            {
+                upgradeCards[i].SetPosition(camPos.x + (i - 1) * cardSpacing, camPos.y);
+                upgradeCards[i].SetCameraPos(camPos.x, camPos.y);
+
+                if (upgradeCards[i].UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+                {
+                    // 선택한 카드에 따른 능력치 적용!
+                    int pickedId = cardUpIds[i];
+
+                    if (pickedId == 0) 
+                    {
+                        player.maxHp += 20.0f; player.hp = player.maxHp; // HP증가 & 풀피
+                    }
+                    else if (pickedId == 1) 
+                    { 
+                        player.basespeed *= 1.1f;  // 이속 10% 증가
+                    }                  
+                    else if (pickedId == 2)
+                    {
+                        // 모든 무기 데미지 증가 (근접, 유도탄 등 변수에 직접 접근하거나 수식화)
+                        player.damageMultiplier += 0.2f;
+                    }
+                    else if (pickedId == 3) 
+                    { 
+                        attackCooldown *= 0.9f; // 쿨다운 10% 감소
+                    }                    
+                    else if (pickedId == 4) 
+                    { 
+                        auraRadius *= 1.2f; auraEffect.SetScale(auraRadius * 2, auraRadius * 2); // 오라 범위 증가
+                    } 
+
+                    currentState = GameState::PLAY; // 다시 게임으로!
+                    Sleep(200);
+                }
+                upgradeCards[i].Update(0.0f);
+            }
+        }
         else if (currentState == GameState::PAUSE)  // 일시 정지 씬
         {
             // 배경과 버튼을 카메라 중앙에 띄움
@@ -1515,24 +1714,73 @@ public:
             btnPauseMain.Update(0.0f);
             btnPauseSetting.Update(0.0f);
             btnPauseExit.Update(0.0f);
-        }
+        }    
+        else if (currentState == GameState::GAME_OVER || currentState == GameState::CLEAR) // 게임 오버 / 클리어 UI 및 점수 계산
+        {
+            float worldMouseX = mouseX + camPos.x;
+            float worldMouseY = mouseY + camPos.y;
 
-        // 게임 오버 / 클리어 UI 위치 동기화 (항상 화면 정중앙)
-        // 카메라 위치에 정확히 겹치게 띄우고 애니메이션을 재생
-        if (currentState == GameState::GAME_OVER)
-        {
-            gameOverUI.SetPosition(camPos.x, camPos.y);
-            gameOverUI.SetCameraPos(camPos.x, camPos.y);
-            // dt를 넣어서 타이머가 굴러가게 애니메이션 재생
-            gameOverUI.Update(dt);
-        }
-        else if (currentState == GameState::CLEAR)
-        {
-            clearUI.SetPosition(camPos.x, camPos.y);
-            clearUI.SetCameraPos(camPos.x, camPos.y);
-            // dt를 넣어서 승리 애니메이션이 재생
-            clearUI.Update(dt);
-        }
+            if (currentState == GameState::GAME_OVER)
+            {
+                gameOverUI.SetPosition(camPos.x, camPos.y + 0.8f);
+                gameOverUI.SetCameraPos(camPos.x, camPos.y);
+                gameOverUI.Update(dt);
+            }
+            else
+            {
+                clearUI.SetPosition(camPos.x, camPos.y + 0.8f);
+                clearUI.SetCameraPos(camPos.x, camPos.y);
+                clearUI.Update(dt);
+            }
+
+            // 점수 계산 및 배경 띄우기
+            int score = (int)(gameTimer * 10.0f) + (player.level * 100) + (totalKills * 50);
+
+            scoreBg.SetPosition(camPos.x, camPos.y + 0.05f);
+            scoreBg.SetCameraPos(camPos.x, camPos.y);
+            scoreBg.Update(0.0f);
+
+            // 점수 숫자 추출 및 세팅
+            int tempScore = score;
+            float digitStartX = camPos.x + 0.06f;
+            float digitSpacing = 0.035f;
+
+            for (int i = 5; i >= 0; i--) // 1의 자리가 맨 뒤(5번)에 오도록 배열 거꾸로 순회
+            {
+                int digit = tempScore % 10;
+                tempScore /= 10;
+
+                scoreTexts[i].SetFrame(digit);
+                scoreTexts[i].SetPosition(digitStartX + (i * digitSpacing), camPos.y + 0.05f);
+                scoreTexts[i].SetCameraPos(camPos.x, camPos.y);
+                scoreTexts[i].Update(0.0f);
+            }
+
+            // 버튼 3개 위치 세팅 (점수판 아래로 나란히)
+            btnRetry.SetPosition(camPos.x, camPos.y - 0.25f); btnRetry.SetCameraPos(camPos.x, camPos.y);
+            btnResultMain.SetPosition(camPos.x, camPos.y - 0.5f); btnResultMain.SetCameraPos(camPos.x, camPos.y);
+            btnResultExit.SetPosition(camPos.x, camPos.y - 0.75f); btnResultExit.SetCameraPos(camPos.x, camPos.y);
+
+            // 클릭 판정
+            if (btnRetry.UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+            {
+                ResetGame();
+                currentState = GameState::WEAPON_SELECT; // 바로 무기 고르고 재시작
+                Sleep(200);
+            }
+            if (btnResultMain.UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+            {
+                ResetGame();
+                currentState = GameState::TITLE; // 타이틀로
+                Sleep(200);
+            }
+            if (btnResultExit.UpdateButton(worldMouseX, worldMouseY, isMouseDown))
+            {
+                PostQuitMessage(0); // 종료
+            }
+
+            btnRetry.Update(0.0f); btnResultMain.Update(0.0f); btnResultExit.Update(0.0f);
+            }
     }
 
     // 매 프레임 화면을 그리는 함수
@@ -1649,8 +1897,11 @@ public:
             expBarFill.Render(commandList.Get());
 
             levelBg.Render(commandList.Get());
-            levelText.Render(commandList.Get());
 
+            for (int i = 0; i < 2; i++)
+            {
+                levelTexts[i].Render(commandList.Get());
+            }
             for (int i = 0; i < 4; i++) 
             {
                 timerTexts[i].Render(commandList.Get());
@@ -1669,7 +1920,7 @@ public:
                     weaponCards[i].Render(commandList.Get());
                     weaponIcons[i].Render(commandList.Get());
                 }
-            }
+            }  
             else if (currentState == GameState::PAUSE)
             {
                 pauseBg.Render(commandList.Get());
@@ -1677,13 +1928,30 @@ public:
                 btnPauseSetting.Render(commandList.Get());
                 btnPauseExit.Render(commandList.Get());
             }
-            else if (currentState == GameState::GAME_OVER)
+            else if (currentState == GameState::LEVEL_UP)
             {
-                gameOverUI.Render(commandList.Get());
+                levelUpBg.Render(commandList.Get());
+                for (int i = 0; i < 3; i++)
+                {
+                    upgradeCards[i].Render(commandList.Get());
+                }
             }
-            else if (currentState == GameState::CLEAR)
+            else if (currentState == GameState::GAME_OVER || currentState == GameState::CLEAR)
             {
-                clearUI.Render(commandList.Get());
+                if (currentState == GameState::GAME_OVER) gameOverUI.Render(commandList.Get());
+                else clearUI.Render(commandList.Get());
+
+                // 점수와 숫자 출력
+                scoreBg.Render(commandList.Get());
+                for (int i = 0; i < 6; i++)
+                {
+                    scoreTexts[i].Render(commandList.Get());
+                }
+
+                // 버튼들 출력
+                btnRetry.Render(commandList.Get());
+                btnResultMain.Render(commandList.Get());
+                btnResultExit.Render(commandList.Get());
             }
         }
 

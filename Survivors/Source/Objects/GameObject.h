@@ -5,6 +5,9 @@
 #include "../Utils/d3dx12.h"
 #include "../Utils/Utils.h"			// Input Manager 사용
 #include "../Utils/stb_image.h"		// 이미지 로드용
+#include "../Utils/SoundManager.h"	// 사운드 매니저
+
+SoundManager g_SoundMgr;
 
 using namespace Microsoft::WRL;
 using namespace DirectX;
@@ -260,6 +263,7 @@ public:
 	int level = 1;
 	float exp = 0.0f;
 	float maxExp = 100.0f;	// 이 수치가 다 차면 레벨업
+	float damageMultiplier = 1.0f; // 기본 공격력 100%
 
 	// 플레이어만의 고유한 업데이트 로직 (키보드 입력)
 	void Update(float dt, InputManager& inputMgr)
@@ -312,43 +316,43 @@ public:
 
 		if (enemyType == 0)	// 기본 적
 		{
-			maxHp = 30.0f; hp = 30.0f; speed = 0.25f;
+			maxHp = 15.0f; hp = 15.0f; speed = 0.25f;
 			SetScale(0.45f, 0.6f);
 			SetTintColor(1.0f, 1.0f, 1.0f);
 		}
 		else if (enemyType == 1) // 스피드 형 적
 		{
-			maxHp = 15.0f; hp = 15.0f; speed = 0.6f;
+			maxHp = 5.0f; hp = 5.0f; speed = 0.35f;
 			SetScale(0.45f, 0.6f);
 			SetTintColor(1.0f, 1.0f, 1.0f);
 		}
 		else if (enemyType == 2) // 탱커 형 괴물
 		{
-			maxHp = 150.0f; hp = 150.0f; speed = 0.15f;
+			maxHp = 20.0f; hp = 20.0f; speed = 0.1f;
 			SetScale(0.45f, 0.6f);
 			SetTintColor(1.0f, 1.0f, 1.0f);
 		}
 		else if (enemyType == 3) // 5분 보스 (Boss1.png)
 		{
-			maxHp = 1000.0f; hp = 1000.0f; speed = 0.2f;
+			maxHp = 25.0f; hp = 25.0f; speed = 0.2f;
 			SetScale(0.9f, 1.2f);
 			SetTintColor(1.0f, 0.8f, 0.2f); // 황금색
 		}
 		else if (enemyType == 4) // 10분 보스 (Boss2.png)
 		{
-			maxHp = 2500.0f; hp = 2500.0f; speed = 0.22f;
+			maxHp = 30.0f; hp = 30.0f; speed = 0.22f;
 			SetScale(0.9f, 1.2f);
 			SetTintColor(1.0f, 0.8f, 0.2f);
 		}
 		else if (enemyType == 5) // 15분 보스 (Boss3.png)
 		{
-			maxHp = 5000.0f; hp = 5000.0f; speed = 0.25f;
+			maxHp = 40.0f; hp = 40.0f; speed = 0.25f;
 			SetScale(0.9f, 1.2f);
 			SetTintColor(1.0f, 0.8f, 0.2f);
 		}
 		else if (enemyType == 6) // 대망의 19분 최종 보스 (Boss4.png)
 		{
-			maxHp = 15000.0f; hp = 15000.0f; speed = 0.3f;
+			maxHp = 50.0f; hp = 50.0f; speed = 0.3f;
 			SetScale(1.5f, 1.8f);
 			SetTintColor(1.0f, 0.2f, 0.2f); // 공포스러운 붉은색 필터
 		}
@@ -440,15 +444,8 @@ public:
 		float pickupRadius = 0.15f;
 		if (dist < pickupRadius)
 		{
+			g_SoundMgr.Play("gem");
 			player.exp += expValue;
-
-			// 경험치 다 차면 레벨업
-			if (player.exp >= player.maxExp)
-			{
-				player.exp -= player.maxExp;
-				player.maxExp *= 1.5f; // 다음 레벨업 요구량 1.5배 증가
-				player.level++;
-			}
 			isDead = true; // 획득한 보석은 파괴
 		}
 
@@ -518,6 +515,7 @@ class Button : public GameObject
 public:
 	float baseScaleX = 1.0f;
 	float baseScaleY = 1.0f;
+	bool wasHovered = false;	// 마우스가 올라가 있었는지 기억하는 변수
 
 	// 초기 크기를 기억해두는 함수
 	void InitScale(float x, float y)
@@ -538,6 +536,12 @@ public:
 		if (mouseX >= position.x - halfW && mouseX <= position.x + halfW &&
 			mouseY >= position.y - halfH && mouseY <= position.y + halfH)
 		{
+			// 마우스가 처음 닿았을 때 한 번만 호버 사운드 재생
+			if (!wasHovered) 
+			{
+				g_SoundMgr.Play("hover");
+				wasHovered = true;
+			}
 			if (isMouseDown)
 			{
 				// 클릭 중이면 10% 쪼그라들게 연출 (꾹 눌린 느낌)
