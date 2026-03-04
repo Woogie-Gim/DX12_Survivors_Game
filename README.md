@@ -1,4 +1,4 @@
-$ 🐧 Penguin Ice Survivors (DirectX 12 기반 2D 타임 서바이벌 게임)
+# 🐧 Penguin Ice Survivors (DirectX 12 기반 2D 타임 서바이벌 게임)
 ![alt text](Images/1.png)
 
 - Penguin Ice Survivors는 C++과 DirectX 12 로우레벨 API를 활용하여 직접 엔진을 구축해 개발한 2D 탑다운 타임 서바이벌 게임입니다.
